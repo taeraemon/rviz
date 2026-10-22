@@ -21,14 +21,15 @@ Related: #1077, #1308.
 ### Is this user-facing behavior change?
 
 Large point clouds render much faster and use far less GPU and system memory on drivers with
-geometry shaders (NVIDIA, including Jetson). Nothing changes on drivers without them.
+geometry shaders (e.g. the NVIDIA driver; Jetson was not tested). Nothing changes on drivers
+without them.
 
 - Vertex data per point: 168 -> 16 bytes (squares, spheres), 1008 -> 16 bytes (boxes).
 - GPU memory, static 6.5M point cloud: Flat Squares 1147 -> 200 MiB, Boxes 6382 -> 200 MiB.
 - 1M point cloud streamed at 10 Hz: Flat Squares 30 -> 42 FPS, Boxes 3 -> 45 FPS.
-- KITTI 00, 1500 accumulated scans (181M points), Flat Squares: 0.7 -> 38 FPS. Without the
-  change the vertex buffers exceed the 24 GB of VRAM at about 160M points and the driver starts
-  paging. Resident memory drops from about 273 to 89 bytes per point, since the driver keeps a
+- KITTI 00 accumulated at 10 Hz, Flat Squares, while scans 1400-1500 arrive (169M-181M points):
+  0.8 -> 38 FPS. Without the change the vertex buffers exceed the 24 GB of VRAM at about 160M
+  points and the driver starts paging. Resident memory drops from about 273 to 89 bytes per point, since the driver keeps a
   system memory copy of every vertex buffer.
 
 ### Did you use Generative AI?
