@@ -4,7 +4,7 @@
 # the render frame rate against the number of accumulated points.
 VARIANT=$1 STYLE=$2 MODE=$3 FRAMES=$4 RATE=$5 TAIL=${6:-20} MAP_EVERY=${7:-100}
 WS=/workspace/ws; OUT=$WS/bench_out; mkdir -p $OUT
-TAG="kitti_${VARIANT}_${STYLE// /}_${MODE}_${FRAMES}${PPP:+_ppp$PPP}"
+TAG="kitti_${VARIANT}_${STYLE// /}_${MODE}_${FRAMES}${PPP:+_ppp$PPP}${VIEW:+_$VIEW}"
 export DISPLAY=:99
 pgrep -x Xvfb >/dev/null || { Xvfb :99 -screen 0 1920x1080x24 >/dev/null 2>&1 & sleep 2; }
 source /opt/ros/rolling/setup.bash; source $WS/install_ogre/setup.bash
@@ -16,6 +16,27 @@ sed -i "s|Depth: 5|Depth: 100|" /tmp/$TAG.rviz
 [ -n "$PPP" ] && sed -i "s|      Decay Time: \(.*\)|      Decay Time: \1\n      Max Points Per Pixel: $PPP|" /tmp/$TAG.rviz
 [ "$MODE" = scan ] && sed -i "s|Durability Policy: Transient Local|Durability Policy: Volatile|" /tmp/$TAG.rviz
 sed -i 's|Pitch: 0.6|Pitch: 1.0|; s|Focal Point: {X: 0, Y: 0, Z: 0}|Focal Point: {X: 120, Y: 100, Z: 0}|' /tmp/$TAG.rviz
+if [ "$VIEW" = ortho ]; then
+  python3 - /tmp/$TAG.rviz <<'PY'
+import sys, re
+p = sys.argv[1]; s = open(p).read()
+i = s.index('  Views:'); j = s.index('Window Geometry:')
+s = s[:i] + """  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Name: Current View
+      Near Clip Distance: 0.01
+      Scale: 2
+      X: 120
+      Y: 100
+      Angle: 0
+      Target Frame: <Fixed Frame>
+      Value: TopDownOrtho (rviz_default_plugins)
+    Saved: ~
+""" + s[j:]
+open(p, 'w').write(s)
+PY
+fi
 FRAMETIME_OUT=$OUT/$TAG.ft LD_PRELOAD=$WS/libframetime.so vglrun -d egl \
   rviz2 -d /tmp/$TAG.rviz $RVIZ_ARGS > $OUT/$TAG.log 2>&1 & RV=$!
 sleep 6
