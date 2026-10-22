@@ -27,9 +27,10 @@ without them.
 - Vertex data per point: 168 -> 16 bytes (squares, spheres), 1008 -> 16 bytes (boxes).
 - GPU memory, static 6.5M point cloud: Flat Squares 1147 -> 200 MiB, Boxes 6382 -> 200 MiB.
 - 1M point cloud streamed at 10 Hz: Flat Squares 30 -> 42 FPS, Boxes 3 -> 45 FPS.
-- KITTI 00 accumulated at 10 Hz, Flat Squares, while scans 1400-1500 arrive (169M-181M points):
-  0.8 -> 38 FPS. Without the change the vertex buffers exceed the 24 GB of VRAM at about 160M
-  points and the driver starts paging. Resident memory drops from about 273 to 89 bytes per point, since the driver keeps a
+- KITTI 00 accumulated, Flat Squares, while scans 1400-1500 arrive (169M-181M points):
+  0.8 FPS without the change (scans at 10 Hz), 38 FPS with it (scans at 20 Hz). Without the
+  change the vertex buffers exceed the 24 GB of VRAM at about 160M points and the driver starts
+  paging. Resident memory drops from about 273 to 89 bytes per point, since the driver keeps a
   system memory copy of every vertex buffer.
 
 ### Did you use Generative AI?
