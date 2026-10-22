@@ -477,45 +477,17 @@ static uint32_t lowDiscrepancyStride(uint32_t n)
   return stride;
 }
 
-namespace
+// Spreads the low 21 bits of v so that there are two zero bits between each of them.
+static uint64_t spreadBits(uint64_t v)
 {
-
-// Minimal open addressing hash set of non-zero 64 bit keys.
-class VoxelSet
-{
-public:
-  explicit VoxelSet(size_t max_keys)
-  {
-    size_t capacity = 16;
-    while (capacity < 2 * max_keys) {
-      capacity *= 2;
-    }
-    keys_.resize(capacity);
-    mask_ = capacity - 1;
-  }
-
-  void clear() {std::fill(keys_.begin(), keys_.end(), 0);}
-
-  /// Returns true if the key was not in the set yet.
-  bool insert(uint64_t key)
-  {
-    size_t slot = (key * 0x9E3779B97F4A7C15ull) >> 20 & mask_;
-    while (keys_[slot] != 0) {
-      if (keys_[slot] == key) {
-        return false;
-      }
-      slot = (slot + 1) & mask_;
-    }
-    keys_[slot] = key;
-    return true;
-  }
-
-private:
-  std::vector<uint64_t> keys_;
-  size_t mask_;
-};
-
-}  // namespace
+  v &= 0x1fffff;
+  v = (v | v << 32) & 0x1f00000000ffffull;
+  v = (v | v << 16) & 0x1f0000ff0000ffull;
+  v = (v | v << 8) & 0x100f00f00f00f00full;
+  v = (v | v << 4) & 0x10c30c30c30c30c3ull;
+  v = (v | v << 2) & 0x1249249249249249ull;
+  return v;
+}
 
 // Orders n points so that every prefix of the order covers the space they occupy evenly:
 // first one point per coarse voxel, then one more per voxel of half that size, and so on.
@@ -524,36 +496,55 @@ static std::vector<uint32_t> levelOfDetailOrder(
   std::vector<PointCloud::Point>::const_iterator first, uint32_t n)
 {
   constexpr int kLevels = 12;
+  // Level l has voxels with an edge of extent / 2^(l + 2), so it uses the top l + 2 bits of
+  // each axis of a voxel index with kBits bits.
+  constexpr int kBits = kLevels + 1;
+  constexpr int kIndexBits = 25;
+  static_assert(3 * kBits + kIndexBits <= 64, "voxel code and index must fit in 64 bits");
+  assert(n < (1u << kIndexBits));
+
   Ogre::AxisAlignedBox box;
   for (uint32_t i = 0; i < n; ++i) {
     box.merge(first[i].position);
   }
-  const Ogre::Vector3 minimum = box.isFinite() ? box.getMinimum() : Ogre::Vector3::ZERO;
   const Ogre::Real extent = box.isFinite() ? box.getSize().length() : 0.0f;
-
   std::vector<uint8_t> level(n, kLevels);
+
   if (extent > 0.0f && std::isfinite(extent)) {
-    VoxelSet voxels(n);
-    for (int l = 0; l < kLevels; ++l) {
-      const Ogre::Real inverse_size = static_cast<Ogre::Real>(4 << l) / extent;
-      auto key = [&](uint32_t i) {
-          const Ogre::Vector3 v = (first[i].position - minimum) * inverse_size;
-          const auto clamp = [](Ogre::Real c) {
-              return static_cast<uint64_t>(std::min(std::max(c, 0.0f), 2097151.0f));
-            };
-          return (clamp(v.x) << 42 | clamp(v.y) << 21 | clamp(v.z)) + 1;
-        };
-      voxels.clear();
-      // Voxels already holding a point of a coarser level are taken.
-      for (uint32_t i = 0; i < n; ++i) {
-        if (level[i] < l) {
-          voxels.insert(key(i));
-        }
+    // Sort the points by the Morton code of their finest voxel (index in the low bits), so the
+    // voxels of every level are contiguous. A point is the first of its voxel at the coarsest
+    // level at which its code differs from the previous one.
+    const Ogre::Vector3 minimum = box.getMinimum();
+    const Ogre::Real scale = static_cast<Ogre::Real>(1 << kBits) / extent;
+    const auto quantize = [scale](Ogre::Real v) {
+        return static_cast<uint64_t>(
+          std::min(std::max(v * scale, 0.0f), static_cast<Ogre::Real>((1 << kBits) - 1)));
+      };
+    std::vector<uint64_t> codes(n);
+    for (uint32_t i = 0; i < n; ++i) {
+      const Ogre::Vector3 v = first[i].position - minimum;
+      codes[i] = (spreadBits(quantize(v.x)) << 2 | spreadBits(quantize(v.y)) << 1 |
+        spreadBits(quantize(v.z))) << kIndexBits | i;
+    }
+    std::vector<uint64_t> sorted(n);
+    for (int shift = kIndexBits; shift < 64; shift += 8) {
+      uint32_t count[257] = {0};
+      for (uint64_t code : codes) {
+        ++count[((code >> shift) & 255) + 1];
       }
-      for (uint32_t i = 0; i < n; ++i) {
-        if (level[i] == kLevels && voxels.insert(key(i))) {
-          level[i] = static_cast<uint8_t>(l);
-        }
+      std::partial_sum(count, count + 257, count);
+      for (uint64_t code : codes) {
+        sorted[count[(code >> shift) & 255]++] = code;
+      }
+      codes.swap(sorted);
+    }
+    for (uint32_t k = 0; k < n; ++k) {
+      const auto i = static_cast<uint32_t>(codes[k] & ((1u << kIndexBits) - 1));
+      const uint64_t difference = k == 0 ? ~0ull : (codes[k] ^ codes[k - 1]) >> kIndexBits;
+      if (difference != 0) {
+        const int highest_bit = 63 - __builtin_clzll(difference);
+        const int depth = k == 0 ? 0 : kBits - 1 - highest_bit / 3;
+        level[i] = static_cast<uint8_t>(std::min(kLevels, std::max(0, depth - 1)));
       }
     }
   }
