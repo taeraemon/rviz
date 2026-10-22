@@ -227,7 +227,7 @@ TEST_F(PointCloudTestFixture, setRenderMode_changes_material) {
 
   auto renderables = point_cloud->getRenderables();
   for (auto const & renderable : renderables) {
-    std::regex regex("^PointCloudMaterial\\d+Point$");
+    std::regex regex("^rviz/PointCloudPoint/Opaque$");
     ASSERT_TRUE(std::regex_match(renderable->getMaterial()->getName(), regex));
   }
 
@@ -235,7 +235,7 @@ TEST_F(PointCloudTestFixture, setRenderMode_changes_material) {
 
   renderables = point_cloud->getRenderables();
   for (auto const & renderable : renderables) {
-    std::regex regex("^PointCloudMaterial\\d+Tiles$");
+    std::regex regex("^rviz/PointCloudTile/Opaque$");
     ASSERT_TRUE(std::regex_match(renderable->getMaterial()->getName(), regex));
   }
 }

@@ -32,9 +32,11 @@
 #include "rviz_rendering/objects/point_cloud_renderable.hpp"
 
 #include <algorithm>
+#include <limits>
 
 #include <OgreCamera.h>
 #include <OgreHardwareBufferManager.h>
+#include <OgreMaterialManager.h>
 
 #include "rviz_rendering/objects/point_cloud.hpp"
 
@@ -44,17 +46,33 @@ namespace rviz_rendering
 PointCloudRenderable::PointCloudRenderable(
   PointCloud * parent, int num_points, bool
   use_tex_coords, Ogre::RenderOperation::OperationType operationType)
-: parent_(parent)
+: parent_(parent),
+  vertex_limit_(std::numeric_limits<size_t>::max())
 {
   initializeRenderOperation(operationType);
   specifyBufferContent(use_tex_coords);
   createAndBindBuffer(num_points);
+  limited_vertex_data_.reset(mRenderOp.vertexData->clone(false));
 }
 
 PointCloudRenderable::~PointCloudRenderable()
 {
   delete mRenderOp.vertexData;
   delete mRenderOp.indexData;
+}
+
+void PointCloudRenderable::getRenderOperation(Ogre::RenderOperation & op)
+{
+  op = mRenderOp;
+  // Selection and depth passes use their own material schemes and need every point.
+  if (vertex_limit_ < mRenderOp.vertexData->vertexCount &&
+    Ogre::MaterialManager::getSingleton().getActiveScheme() ==
+    Ogre::MaterialManager::DEFAULT_SCHEME_NAME)
+  {
+    limited_vertex_data_->vertexStart = mRenderOp.vertexData->vertexStart;
+    limited_vertex_data_->vertexCount = vertex_limit_;
+    op.vertexData = limited_vertex_data_.get();
+  }
 }
 
 Ogre::HardwareVertexBufferSharedPtr PointCloudRenderable::getBuffer()

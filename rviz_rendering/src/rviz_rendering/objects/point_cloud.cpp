@@ -33,7 +33,9 @@
 
 #include <algorithm>
 #include <cassert>
-#include <sstream>
+#include <cmath>
+#include <limits>
+#include <numeric>
 #include <vector>
 
 #include <OgreHardwareBuffer.h>
@@ -209,33 +211,9 @@ PointCloud::PointCloud()
   common_direction_(Ogre::Vector3::NEGATIVE_UNIT_Z),
   common_up_vector_(Ogre::Vector3::UNIT_Y),
   color_by_index_(false),
+  level_of_detail_(false),
   current_mode_supports_geometry_shader_(false)
 {
-  std::stringstream ss;
-  static int count = 0;
-  ss << "PointCloudMaterial" << count++;
-  point_material_ = Ogre::MaterialManager::getSingleton().getByName("rviz/PointCloudPoint");
-  square_material_ = Ogre::MaterialManager::getSingleton().getByName("rviz/PointCloudSquare");
-  flat_square_material_ = Ogre::MaterialManager::getSingleton().getByName(
-    "rviz/PointCloudFlatSquare");
-  sphere_material_ = Ogre::MaterialManager::getSingleton().getByName("rviz/PointCloudSphere");
-  tile_material_ = Ogre::MaterialManager::getSingleton().getByName("rviz/PointCloudTile");
-  box_material_ = Ogre::MaterialManager::getSingleton().getByName("rviz/PointCloudBox");
-
-  point_material_ = Ogre::MaterialPtr(point_material_)->clone(ss.str() + "Point");
-  square_material_ = Ogre::MaterialPtr(square_material_)->clone(ss.str() + "Square");
-  flat_square_material_ = Ogre::MaterialPtr(flat_square_material_)->clone(ss.str() + "FlatSquare");
-  sphere_material_ = Ogre::MaterialPtr(sphere_material_)->clone(ss.str() + "Sphere");
-  tile_material_ = Ogre::MaterialPtr(tile_material_)->clone(ss.str() + "Tiles");
-  box_material_ = Ogre::MaterialPtr(box_material_)->clone(ss.str() + "Box");
-
-  point_material_->load();
-  square_material_->load();
-  flat_square_material_->load();
-  sphere_material_->load();
-  tile_material_->load();
-  box_material_->load();
-
   setAlpha(1.0f);
   setRenderMode(RM_SPHERES);
   setDimensions(0.01f, 0.01f, 0.01f);
@@ -243,29 +221,9 @@ PointCloud::PointCloud()
   clear();
 }
 
-static void removeMaterial(Ogre::MaterialPtr & material)
-{
-  Ogre::ResourcePtr resource(material);
-  Ogre::MaterialManager::getSingleton().remove(resource);
-}
-
 PointCloud::~PointCloud()
 {
   clear();
-
-  point_material_->unload();
-  square_material_->unload();
-  flat_square_material_->unload();
-  sphere_material_->unload();
-  tile_material_->unload();
-  box_material_->unload();
-
-  removeMaterial(point_material_);
-  removeMaterial(square_material_);
-  removeMaterial(flat_square_material_);
-  removeMaterial(sphere_material_);
-  removeMaterial(tile_material_);
-  removeMaterial(box_material_);
 }
 
 const Ogre::AxisAlignedBox & PointCloud::getBoundingBox() const
@@ -330,8 +288,8 @@ void PointCloud::regenerateAll()
     return;
   }
 
-  V_Point points;
-  points.swap(points_);
+  V_Point points = getPoints();
+  points_.clear();
 
   clear();
 
@@ -448,25 +406,48 @@ void setReplace(const Ogre::MaterialPtr & mat)
   }
 }
 
+// The materials of all point clouds only differ in their blending mode; everything else is set
+// per renderable with custom parameters. Sharing them lets Ogre render many clouds in one pass
+// instead of switching materials for every cloud.
+static Ogre::MaterialPtr getSharedMaterial(const std::string & base_name, bool alpha_blending)
+{
+  const std::string name = base_name + (alpha_blending ? "/AlphaBlended" : "/Opaque");
+  auto & manager = Ogre::MaterialManager::getSingleton();
+  Ogre::MaterialPtr material = manager.getByName(name);
+  if (!material) {
+    material = manager.getByName(base_name)->clone(name);
+    material->load();
+    if (alpha_blending) {
+      setAlphaBlending(material);
+    } else {
+      setReplace(material);
+    }
+  }
+  return material;
+}
+
+void PointCloud::setMaterials(bool alpha_blending)
+{
+  point_material_ = getSharedMaterial("rviz/PointCloudPoint", alpha_blending);
+  square_material_ = getSharedMaterial("rviz/PointCloudSquare", alpha_blending);
+  flat_square_material_ = getSharedMaterial("rviz/PointCloudFlatSquare", alpha_blending);
+  sphere_material_ = getSharedMaterial("rviz/PointCloudSphere", alpha_blending);
+  tile_material_ = getSharedMaterial("rviz/PointCloudTile", alpha_blending);
+  box_material_ = getSharedMaterial("rviz/PointCloudBox", alpha_blending);
+
+  if (current_material_) {
+    current_material_ = getMaterialForRenderMode(render_mode_);
+    for (auto & renderable : renderables_) {
+      renderable->setMaterial(current_material_);
+    }
+  }
+}
+
 void PointCloud::setAlpha(float alpha, bool per_point_alpha)
 {
   alpha_ = alpha;
 
-  if (alpha < rviz_rendering::unit_alpha_threshold || per_point_alpha) {
-    setAlphaBlending(point_material_);
-    setAlphaBlending(square_material_);
-    setAlphaBlending(flat_square_material_);
-    setAlphaBlending(sphere_material_);
-    setAlphaBlending(tile_material_);
-    setAlphaBlending(box_material_);
-  } else {
-    setReplace(point_material_);
-    setReplace(square_material_);
-    setReplace(flat_square_material_);
-    setReplace(sphere_material_);
-    setReplace(tile_material_);
-    setReplace(box_material_);
-  }
+  setMaterials(alpha < rviz_rendering::unit_alpha_threshold || per_point_alpha);
 
   Ogre::Vector4 alpha4(alpha_, alpha_, alpha_, alpha_);
   for (auto & renderable : renderables_) {
@@ -477,9 +458,132 @@ void PointCloud::setAlpha(float alpha, bool per_point_alpha)
 void PointCloud::setColor(const Ogre::ColourValue & color)
 {
   for (auto & point : points_) {
-    point.setColor(color.r, color.g, color.b, color.a);
+    point.color = color.getAsRGBA();
   }
   regenerateAll();
+}
+
+// A step through [0, n) that visits every index once and spreads consecutive visits evenly
+// (golden ratio), so that any prefix of the visiting order is a uniform subset.
+static uint32_t lowDiscrepancyStride(uint32_t n)
+{
+  if (n < 3) {
+    return 1;
+  }
+  auto stride = static_cast<uint32_t>(n * 0.6180339887);
+  while (std::gcd(stride, n) != 1) {
+    ++stride;
+  }
+  return stride;
+}
+
+namespace
+{
+
+// Minimal open addressing hash set of non-zero 64 bit keys.
+class VoxelSet
+{
+public:
+  explicit VoxelSet(size_t max_keys)
+  {
+    size_t capacity = 16;
+    while (capacity < 2 * max_keys) {
+      capacity *= 2;
+    }
+    keys_.resize(capacity);
+    mask_ = capacity - 1;
+  }
+
+  void clear() {std::fill(keys_.begin(), keys_.end(), 0);}
+
+  /// Returns true if the key was not in the set yet.
+  bool insert(uint64_t key)
+  {
+    size_t slot = (key * 0x9E3779B97F4A7C15ull) >> 20 & mask_;
+    while (keys_[slot] != 0) {
+      if (keys_[slot] == key) {
+        return false;
+      }
+      slot = (slot + 1) & mask_;
+    }
+    keys_[slot] = key;
+    return true;
+  }
+
+private:
+  std::vector<uint64_t> keys_;
+  size_t mask_;
+};
+
+}  // namespace
+
+// Orders n points so that every prefix of the order covers the space they occupy evenly:
+// first one point per coarse voxel, then one more per voxel of half that size, and so on.
+// Sparse regions are therefore kept when a prefix is drawn, redundant points go last.
+static std::vector<uint32_t> levelOfDetailOrder(
+  std::vector<PointCloud::Point>::const_iterator first, uint32_t n)
+{
+  constexpr int kLevels = 12;
+  Ogre::AxisAlignedBox box;
+  for (uint32_t i = 0; i < n; ++i) {
+    box.merge(first[i].position);
+  }
+  const Ogre::Vector3 minimum = box.isFinite() ? box.getMinimum() : Ogre::Vector3::ZERO;
+  const Ogre::Real extent = box.isFinite() ? box.getSize().length() : 0.0f;
+
+  std::vector<uint8_t> level(n, kLevels);
+  if (extent > 0.0f && std::isfinite(extent)) {
+    VoxelSet voxels(n);
+    for (int l = 0; l < kLevels; ++l) {
+      const Ogre::Real inverse_size = static_cast<Ogre::Real>(4 << l) / extent;
+      auto key = [&](uint32_t i) {
+          const Ogre::Vector3 v = (first[i].position - minimum) * inverse_size;
+          const auto clamp = [](Ogre::Real c) {
+              return static_cast<uint64_t>(std::min(std::max(c, 0.0f), 2097151.0f));
+            };
+          return (clamp(v.x) << 42 | clamp(v.y) << 21 | clamp(v.z)) + 1;
+        };
+      voxels.clear();
+      // Voxels already holding a point of a coarser level are taken.
+      for (uint32_t i = 0; i < n; ++i) {
+        if (level[i] < l) {
+          voxels.insert(key(i));
+        }
+      }
+      for (uint32_t i = 0; i < n; ++i) {
+        if (level[i] == kLevels && voxels.insert(key(i))) {
+          level[i] = static_cast<uint8_t>(l);
+        }
+      }
+    }
+  }
+
+  // Sort by level; inside a level, spread the points with a low discrepancy stride.
+  std::vector<uint32_t> count(kLevels + 2, 0);
+  for (uint32_t i = 0; i < n; ++i) {
+    ++count[level[i] + 1];
+  }
+  std::partial_sum(count.begin(), count.end(), count.begin());
+  std::vector<uint32_t> by_level(n);
+  std::vector<uint32_t> next(count.begin(), count.end() - 1);
+  for (uint32_t i = 0; i < n; ++i) {
+    by_level[next[level[i]]++] = i;
+  }
+  std::vector<uint32_t> order(n);
+  for (int l = 0; l <= kLevels; ++l) {
+    const uint32_t begin = count[l];
+    const uint32_t size = count[l + 1] - begin;
+    const uint32_t stride = lowDiscrepancyStride(size);
+    uint32_t index = 0;
+    for (uint32_t k = 0; k < size; ++k) {
+      order[begin + k] = by_level[begin + index];
+      index += stride;
+      if (index >= size) {
+        index -= size;
+      }
+    }
+  }
+  return order;
 }
 
 void PointCloud::addPoints(
@@ -490,31 +594,36 @@ void PointCloud::addPoints(
     return;
   }
   auto num_points = static_cast<uint32_t>(std::distance(start_iterator, stop_iterator));
-  points_.insert(points_.cend(), start_iterator, stop_iterator);
+  points_.reserve(points_.size() + num_points);
+  for (auto point = start_iterator; point != stop_iterator; ++point) {
+    points_.push_back({point->position, point->color.getAsRGBA()});
+  }
 
   const float * vertices = getVertices();
   const uint32_t vertices_per_point = getVerticesPerPoint();
 
-  RenderableInternals internals = createNewRenderable(num_points);
+  for (auto chunk_start = start_iterator; chunk_start < stop_iterator; ) {
+    RenderableInternals internals =
+      createNewRenderable(static_cast<uint32_t>(stop_iterator - chunk_start));
+    const uint32_t chunk_size = internals.buffer_size / vertices_per_point;
+    // With level of detail, a renderable draws a prefix of its buffer, so fill it in an order
+    // in which every prefix covers the whole chunk.
+    const std::vector<uint32_t> order =
+      level_of_detail_ ? levelOfDetailOrder(chunk_start, chunk_size) : std::vector<uint32_t>();
 
-  for (auto current_point = start_iterator; current_point < stop_iterator; ++current_point) {
-    if (internals.bufferIsFull()) {
-      assert(internals.noBufferOverflowOccurred());
-
-      finishRenderable(
-        internals,
-        static_cast<uint32_t>(internals.rend->getBuffer()->getNumVertices()));
-
-      internals = createNewRenderable(static_cast<uint32_t>(stop_iterator - current_point));
+    for (uint32_t i = 0; i < chunk_size; ++i) {
+      auto current_point = chunk_start + (order.empty() ? i : order[i]);
+      internals.aabb.merge(current_point->position);
+      addPointToHardwareBuffer(
+        internals, current_point,
+        static_cast<uint32_t>(current_point - start_iterator),
+        vertices, vertices_per_point);
     }
-    internals.aabb.merge(current_point->position);
-    addPointToHardwareBuffer(
-      internals, current_point,
-      static_cast<uint32_t>(current_point - start_iterator),
-      vertices, vertices_per_point);
-  }
+    assert(internals.noBufferOverflowOccurred());
 
-  finishRenderable(internals, internals.current_vertex_count);
+    finishRenderable(internals, internals.current_vertex_count);
+    chunk_start += chunk_size;
+  }
 
   point_count_ += num_points;
 
@@ -649,6 +758,15 @@ void PointCloud::popPoints(uint32_t num_points)
   points_.erase(points_.begin(), points_.begin() + num_points);
   point_count_ -= num_points;
 
+  if (level_of_detail_) {
+    // The oldest points are spread over the buffers in level of detail order; rebuild them.
+    V_Point points = getPoints();
+    points_.clear();
+    clear();
+    addPoints(points.begin(), points.end());
+    return;
+  }
+
   uint32_t vpp = getVerticesPerPoint();
   size_t popped_count = removePointsFromRenderables(num_points, vpp);
   (void) popped_count;
@@ -664,7 +782,19 @@ void PointCloud::popPoints(uint32_t num_points)
 
 std::vector<PointCloud::Point> PointCloud::getPoints()
 {
-  return points_;
+  V_Point points(points_.size());
+  for (size_t i = 0; i < points_.size(); ++i) {
+    points[i] = getPoint(static_cast<uint32_t>(i));
+  }
+  return points;
+}
+
+PointCloud::Point PointCloud::getPoint(uint32_t index) const
+{
+  Point point;
+  point.position = points_[index].position;
+  point.color.setAsRGBA(points_[index].color);
+  return point;
 }
 
 size_t PointCloud::removePointsFromRenderables(
@@ -695,8 +825,34 @@ void PointCloud::resetBoundingBoxForCurrentPoints()
 {
   bounding_box_.setNull();
   for (uint32_t i = 0; i < point_count_; ++i) {
-    Point & p = points_[i];
-    bounding_box_.merge(p.position);
+    bounding_box_.merge(points_[i].position);
+  }
+}
+
+void PointCloud::setLevelOfDetail(bool enabled)
+{
+  if (enabled != level_of_detail_) {
+    level_of_detail_ = enabled;
+    regenerateAll();
+  }
+  if (!enabled) {
+    setPointBudget(std::numeric_limits<size_t>::max());
+  }
+}
+
+void PointCloud::setPointBudget(size_t max_points)
+{
+  const double fraction = point_count_ > 0 && level_of_detail_ ?
+    std::min(1.0, static_cast<double>(max_points) / point_count_) : 1.0;
+  const uint32_t vertices_per_point = getVerticesPerPoint();
+  for (auto & renderable : renderables_) {
+    size_t limit = std::numeric_limits<size_t>::max();
+    if (fraction < 1.0) {
+      const size_t points = renderable->getRenderOperation()->vertexData->vertexCount /
+        vertices_per_point;
+      limit = static_cast<size_t>(std::ceil(fraction * points)) * vertices_per_point;
+    }
+    renderable->setVertexLimit(limit);
   }
 }
 

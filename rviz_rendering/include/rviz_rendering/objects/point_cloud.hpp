@@ -144,6 +144,10 @@ public:
   RVIZ_RENDERING_PUBLIC
   std::vector<Point> getPoints();
 
+  /// The point at \p index, counted from the oldest point; no bounds checking.
+  RVIZ_RENDERING_PUBLIC
+  Point getPoint(uint32_t index) const;
+
   /// Set type of rendering primitive to used; supports points, billboards, spheres and boxes.
   RVIZ_RENDERING_PUBLIC
   void setRenderMode(RenderMode mode);
@@ -191,6 +195,26 @@ public:
 
   RVIZ_RENDERING_PUBLIC
   void setHighlightColor(float r, float g, float b);
+
+  /**
+   * \brief Store points so that any prefix of each renderable is a uniform subset of it.
+   *
+   * Needed for setPointBudget(). Changing it rebuilds the hardware buffers.
+   */
+  RVIZ_RENDERING_PUBLIC
+  void setLevelOfDetail(bool enabled);
+
+  /**
+   * \brief Draw at most about \p max_points points (level of detail).
+   *
+   * Every renderable draws the same fraction of its points. Only has an effect with
+   * setLevelOfDetail(true). Selection always renders all points.
+   */
+  RVIZ_RENDERING_PUBLIC
+  void setPointBudget(size_t max_points);
+
+  RVIZ_RENDERING_PUBLIC
+  uint32_t getNumPoints() const {return point_count_;}
 
   RVIZ_RENDERING_PUBLIC
   const Ogre::String & getMovableType() const override;
@@ -258,6 +282,9 @@ private:
   bool changingGeometrySupportIsNecessary(const Ogre::MaterialPtr materialPtr);
 
   RVIZ_RENDERING_PUBLIC
+  void setMaterials(bool alpha_blending);
+
+  RVIZ_RENDERING_PUBLIC
   PointCloudRenderablePtr createRenderable(
     int num_points,
     Ogre::RenderOperation::OperationType
@@ -301,8 +328,15 @@ private:
   Ogre::AxisAlignedBox bounding_box_;       ///< The bounding box of this point cloud
 
   typedef std::vector<Point> V_Point;
+
+  /// A point as kept to rebuild the hardware buffers; the colour is stored like in the buffers.
+  struct StoredPoint
+  {
+    Ogre::Vector3 position;
+    Ogre::RGBA color;
+  };
   ///< The list of points we're displaying. Allocates to a high-water-mark.
-  V_Point points_;
+  std::vector<StoredPoint> points_;
   uint32_t point_count_;                    ///< The number of points currently in #points_
 
   RenderMode render_mode_;
@@ -320,6 +354,7 @@ private:
   float alpha_;
 
   bool color_by_index_;
+  bool level_of_detail_;
 
   PointCloudRenderableQueue renderables_;
 
