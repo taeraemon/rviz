@@ -51,7 +51,7 @@ geometry shaders (NVIDIA, including Jetson). Nothing changes on drivers without 
 - 1M point cloud streamed at 10 Hz: Flat Squares 30 -> 42 FPS, Boxes 3 -> 45 FPS.
 - KITTI 00, 1500 accumulated scans (181M points), Flat Squares: 0.7 -> 38 FPS. Without the
   change the vertex buffers exceed the 24 GB of VRAM at about 160M points and the driver starts
-  paging. Resident memory drops from about 260 to 85 bytes per point, since the driver keeps a
+  paging. Resident memory drops from about 273 to 89 bytes per point, since the driver keeps a
   system memory copy of every vertex buffer.
 
 ### Did you use Generative AI?
@@ -144,7 +144,7 @@ selection and the point count for the status from the cloud instead (new
 
 ### Is this user-facing behavior change?
 
-Less memory for accumulated clouds: 1000 KITTI scans (121M points), 28.1 -> 25.9 GB resident.
+Less memory for accumulated clouds: 1000 KITTI scans (121M points), 27.4 -> 25.3 GiB resident.
 
 ### Did you use Generative AI?
 
@@ -172,7 +172,7 @@ same.
 
 ### Is this user-facing behavior change?
 
-Less memory: 1000 KITTI scans (121M points), 25.9 -> 24.6 GB resident (on top of D1).
+Less memory: 1000 KITTI scans (121M points), 25.3 -> 24.0 GiB resident (on top of D1).
 
 `getPoints()` and `getPoint()` now return colours at 8 bit precision, which is what was drawn
 anyway. One test comparing exact float colours was adapted.
