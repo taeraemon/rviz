@@ -14,7 +14,7 @@ source $WS/install_ogre/setup.bash
 if [ "$VARIANT" = base ]; then source $WS/base/install/setup.bash; else source $WS/install/setup.bash; fi
 export ROS_DOMAIN_ID=$((RANDOM % 100 + 100))
 
-MEM0=$(nvidia-smi -i 0 --query-gpu=memory.used --format=csv,noheader,nounits)
+MEM0=$(nvidia-smi -i ${GPU_INDEX:-0} --query-gpu=memory.used --format=csv,noheader,nounits)
 python3 $WS/src/rviz/docker/bench/make_config.py "$STYLE" /tmp/$TAG.rviz ${SIZE:-0.05} ${DIST:-90}
 python3 $WS/src/rviz/docker/bench/pub_cloud.py $N $RATE >/dev/null 2>&1 & PUB=$!
 
@@ -29,7 +29,7 @@ sleep $SECS
 T1=$(awk '{print $14+$15}' /proc/$RV/stat)
 CPU=$(( (T1 - T0) * 100 / $(getconf CLK_TCK) / SECS ))
 END=$(wc -l < $OUT/$TAG.ft)
-MEM1=$(nvidia-smi -i 0 --query-gpu=memory.used --format=csv,noheader,nounits)
+MEM1=$(nvidia-smi -i ${GPU_INDEX:-0} --query-gpu=memory.used --format=csv,noheader,nounits)
 xwd -root -silent | convert xwd:- -crop 1600x1000+0+0 $OUT/$TAG.png 2>/dev/null
 kill $RV $PUB 2>/dev/null; wait $RV $PUB 2>/dev/null
 sed -n "$((START + 1)),${END}p" $OUT/$TAG.ft | python3 -c '

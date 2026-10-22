@@ -1,10 +1,11 @@
 """Replay KITTI odometry as a SLAM system would publish it.
 
-usage: kitti_replay.py <seq> <mode> [rate_hz] [num_frames] [map_every]
+usage: kitti_replay.py <seq> <mode> [rate_hz] [num_frames] [map_every] [subsample]
   mode scan : publish each scan registered in the map frame (like /cloud_registered);
               rviz accumulates them with a large Decay Time.
   mode map  : publish the whole accumulated map every <map_every> scans (like /global_map).
 After num_frames scans the node keeps running but stops publishing new data.
+subsample k keeps every k-th point of each scan (many small clouds, like decaying laser scans).
 """
 import sys
 import time
@@ -60,6 +61,7 @@ def main():
     rate = float(sys.argv[3]) if len(sys.argv) > 3 else 10.0
     num = int(sys.argv[4]) if len(sys.argv) > 4 else 10 ** 9
     map_every = int(sys.argv[5]) if len(sys.argv) > 5 else 50
+    subsample = int(sys.argv[6]) if len(sys.argv) > 6 else 1
     poses = load_poses(seq)
     num = min(num, len(poses))
 
@@ -75,7 +77,7 @@ def main():
         i = state['i']
         if i >= num:
             return
-        pts = load_scan(seq, i, poses[i])
+        pts = load_scan(seq, i, poses[i])[::subsample]
         state['i'] += 1
         state['points'] += len(pts)
         stamp = node.get_clock().now().to_msg()

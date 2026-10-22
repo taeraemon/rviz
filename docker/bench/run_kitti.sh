@@ -4,11 +4,15 @@
 # the render frame rate against the number of accumulated points.
 VARIANT=$1 STYLE=$2 MODE=$3 FRAMES=$4 RATE=$5 TAIL=${6:-20} MAP_EVERY=${7:-100}
 WS=/workspace/ws; OUT=$WS/bench_out; mkdir -p $OUT
-TAG="kitti_${VARIANT}_${STYLE// /}_${MODE}_${FRAMES}${PPP:+_ppp$PPP}${VIEW:+_$VIEW}"
+TAG="kitti_${VARIANT}_${STYLE// /}_${MODE}_${FRAMES}${PPP:+_ppp$PPP}${VIEW:+_$VIEW}${SUBSAMPLE:+_sub$SUBSAMPLE}"
 export DISPLAY=:99
 pgrep -x Xvfb >/dev/null || { Xvfb :99 -screen 0 1920x1080x24 >/dev/null 2>&1 & sleep 2; }
 source /opt/ros/rolling/setup.bash; source $WS/install_ogre/setup.bash
-case $VARIANT in base) source $WS/base/install/setup.bash;; *) source $WS/install/setup.bash;; esac
+case $VARIANT in
+  base) source $WS/base/install/setup.bash;;
+  pr_*) source $WS/pr/install_${VARIANT#pr_}/setup.bash;;
+  *) source $WS/install/setup.bash;;
+esac
 export ROS_DOMAIN_ID=$((RANDOM % 100 + 100))
 
 python3 $WS/src/rviz/docker/bench/make_config.py "$STYLE" /tmp/$TAG.rviz ${SIZE:-0.05} ${DIST:-450} ${DECAY:-1000000} ${PX:-2}
@@ -40,7 +44,7 @@ fi
 FRAMETIME_OUT=$OUT/$TAG.ft LD_PRELOAD=$WS/libframetime.so vglrun -d egl \
   rviz2 -d /tmp/$TAG.rviz $RVIZ_ARGS > $OUT/$TAG.log 2>&1 & RV=$!
 sleep 6
-python3 -u $WS/src/rviz/docker/bench/kitti_replay.py 00 $MODE $RATE $FRAMES $MAP_EVERY > $OUT/$TAG.pub 2>&1 & PUB=$!
+python3 -u $WS/src/rviz/docker/bench/kitti_replay.py 00 $MODE $RATE $FRAMES $MAP_EVERY ${SUBSAMPLE:-1} > $OUT/$TAG.pub 2>&1 & PUB=$!
 # wait until the last frame was published, then measure the steady state
 while ! grep -q "frame $FRAMES " $OUT/$TAG.pub 2>/dev/null; do
   sleep 1; kill -0 $RV 2>/dev/null || { echo "$TAG rviz died"; break; }
