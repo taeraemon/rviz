@@ -1,0 +1,17 @@
+services:
+  rviz-rolling:
+    build:
+      context: ../..
+      dockerfile: docker/rolling/Dockerfile
+    image: rviz-rolling:latest
+    container_name: rviz-rolling
+    runtime: nvidia
+    privileged: true  # perf needs kernel perf events
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=0
+    volumes:
+      - /home/tykim/Documents/project_slam/rviz/docker/ws:/workspace/ws
+      - /home/tykim/Documents/project_slam/rviz:/workspace/ws/src/rviz
+      - /mnt/wall_rose/kitti_odometry:/data/kitti_odometry:ro
+    working_dir: /workspace/ws
+    command: sleep infinity

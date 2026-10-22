@@ -1,0 +1,3 @@
+# build workspace, results and the upstream worktree used for A/B builds
+ws/
+base_src/
