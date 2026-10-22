@@ -40,6 +40,10 @@
 #include <QTimer>  // NOLINT
 #include <QWidget>  // NOLINT
 
+#include <OgreRoot.h>
+#include <OgreSceneManager.h>
+#include <OgreSceneNode.h>
+
 #include "rviz_rendering/objects/point_cloud.hpp"
 #include "rviz_rendering/render_window.hpp"
 #include "rviz_rendering/custom_parameter_indices.hpp"
@@ -311,4 +315,53 @@ TEST_F(
   }
 
   ASSERT_THAT(point_cloud->getRenderables(), SizeIs(10));
+}
+
+TEST_F(PointCloudTestFixture, regenerating_an_attached_cloud_does_not_attach_its_renderables) {
+  auto scene_manager = Ogre::Root::getSingletonPtr()->createSceneManager();
+  auto node = scene_manager->getRootSceneNode()->createChildSceneNode();
+  auto point_cloud = std::make_shared<rviz_rendering::PointCloud>();
+  point_cloud->addPoints(squareCenteredAtZero.begin(), squareCenteredAtZero.end());
+  node->attachObject(point_cloud.get());
+
+  // Rebuilds the renderables while the cloud is attached; they are queued by the cloud itself,
+  // so attaching them to the node as well would render them twice.
+  point_cloud->setRenderMode(rviz_rendering::PointCloud::RM_BOXES);
+
+  ASSERT_THAT(point_cloud->getRenderables(), SizeIs(1));
+  EXPECT_THAT(node->numAttachedObjects(), Eq(1u));
+
+  node->detachAllObjects();
+  Ogre::Root::getSingletonPtr()->destroySceneManager(scene_manager);
+}
+
+TEST_F(PointCloudTestFixture, point_budget_limits_drawn_vertices_only_with_level_of_detail) {
+  std::vector<rviz_rendering::PointCloud::Point> points;
+  for (int i = 0; i < 1000; ++i) {
+    points.push_back({Ogre::Vector3(static_cast<float>(i % 10), static_cast<float>(i / 10), 0),
+        colorValue});
+  }
+  auto point_cloud = std::make_shared<rviz_rendering::PointCloud>();
+  point_cloud->setRenderMode(rviz_rendering::PointCloud::RM_POINTS);
+  auto drawn_vertices = [&point_cloud]() {
+      size_t count = 0;
+      for (auto const & renderable : point_cloud->getRenderables()) {
+        Ogre::RenderOperation op;
+        renderable->getRenderOperation(op);
+        count += op.vertexData->vertexCount;
+      }
+      return count;
+    };
+
+  point_cloud->addPoints(points.begin(), points.end());
+  point_cloud->setPointBudget(250);
+  EXPECT_THAT(drawn_vertices(), Eq(1000u));  // level of detail is off
+
+  point_cloud->setLevelOfDetail(true);
+  point_cloud->setPointBudget(250);
+  EXPECT_THAT(drawn_vertices(), Eq(250u));
+  EXPECT_THAT(point_cloud->getNumPoints(), Eq(1000u));
+
+  point_cloud->setLevelOfDetail(false);
+  EXPECT_THAT(drawn_vertices(), Eq(1000u));
 }

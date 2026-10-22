@@ -87,6 +87,10 @@ public:
   RVIZ_RENDERING_PUBLIC
   size_t getVertexLimit() const {return vertex_limit_;}
 
+  /// Whether the vertex limit applies to the camera that is currently rendering.
+  RVIZ_RENDERING_PUBLIC
+  void setVertexLimitEnabled(bool enabled) {vertex_limit_enabled_ = enabled;}
+
   RVIZ_RENDERING_PUBLIC
   Ogre::HardwareVertexBufferSharedPtr getBuffer();
 
@@ -123,6 +127,7 @@ private:
   // Shares the vertex buffer of mRenderOp, but with a vertex count capped at vertex_limit_.
   std::unique_ptr<Ogre::VertexData> limited_vertex_data_;
   size_t vertex_limit_;
+  bool vertex_limit_enabled_;
 };
 typedef std::shared_ptr<PointCloudRenderable> PointCloudRenderablePtr;
 typedef std::deque<PointCloudRenderablePtr> PointCloudRenderableQueue;

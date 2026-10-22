@@ -263,18 +263,18 @@ void PointCloudCommon::updateScreenDensity()
 static double projectedArea(
   const Ogre::Camera * camera, const Ogre::AxisAlignedBox & box, double screen_area)
 {
-  const Ogre::Real viewport_height = camera->getViewport()->getActualHeight();
+  // Pixels per world unit (at unit distance for perspective cameras), taken from the projection
+  // matrix so that view controllers which set a custom projection are covered too.
+  const Ogre::Real pixels_per_unit =
+    camera->getProjectionMatrix()[1][1] * camera->getViewport()->getActualHeight() * 0.5f;
   const Ogre::Real radius = box.getHalfSize().length();
-  Ogre::Real radius_pixels;
+  Ogre::Real radius_pixels = radius * pixels_per_unit;
   if (camera->getProjectionType() == Ogre::PT_PERSPECTIVE) {
     const Ogre::Real distance = (camera->getDerivedPosition() - box.getCenter()).length();
     if (distance <= radius) {
       return screen_area;
     }
-    radius_pixels =
-      radius * viewport_height / (2.0f * Ogre::Math::Tan(camera->getFOVy() * 0.5f)) / distance;
-  } else {
-    radius_pixels = radius * viewport_height / camera->getOrthoWindowHeight();
+    radius_pixels /= distance;
   }
   return std::min(screen_area, static_cast<double>(Ogre::Math::PI * radius_pixels * radius_pixels));
 }
@@ -303,7 +303,7 @@ void PointCloudCommon::updateLevelOfDetail()
     rviz_rendering::PointCloud * cloud = cloud_info->cloud_.get();
     const Ogre::AxisAlignedBox & box = cloud->getWorldBoundingBox(true);
     if (box.isNull() || box.isInfinite() || !camera->isVisible(box)) {
-      cloud->setPointBudget(std::numeric_limits<size_t>::max());
+      cloud->setPointBudget(std::numeric_limits<size_t>::max(), camera);
       continue;
     }
     visible.push_back({cloud, static_cast<double>(cloud->getNumPoints()),
@@ -339,7 +339,8 @@ void PointCloudCommon::updateLevelOfDetail()
     const double points = level * entry.area;
     entry.cloud->setPointBudget(
       points < entry.points ?
-      std::max(min_points, static_cast<size_t>(points)) : std::numeric_limits<size_t>::max());
+      std::max(min_points, static_cast<size_t>(points)) : std::numeric_limits<size_t>::max(),
+      camera);
   }
 }
 

@@ -208,10 +208,11 @@ public:
    * \brief Draw at most about \p max_points points (level of detail).
    *
    * Every renderable draws the same fraction of its points. Only has an effect with
-   * setLevelOfDetail(true). Selection always renders all points.
+   * setLevelOfDetail(true). If \p camera is given, the budget only applies when rendering
+   * through that camera, other views draw all points. Selection always renders all points.
    */
   RVIZ_RENDERING_PUBLIC
-  void setPointBudget(size_t max_points);
+  void setPointBudget(size_t max_points, const Ogre::Camera * camera = nullptr);
 
   RVIZ_RENDERING_PUBLIC
   uint32_t getNumPoints() const {return point_count_;}
@@ -355,6 +356,7 @@ private:
 
   bool color_by_index_;
   bool level_of_detail_;
+  const Ogre::Camera * point_budget_camera_;
 
   PointCloudRenderableQueue renderables_;
 

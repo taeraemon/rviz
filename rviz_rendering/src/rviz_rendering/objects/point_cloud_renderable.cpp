@@ -47,7 +47,8 @@ PointCloudRenderable::PointCloudRenderable(
   PointCloud * parent, int num_points, bool
   use_tex_coords, Ogre::RenderOperation::OperationType operationType)
 : parent_(parent),
-  vertex_limit_(std::numeric_limits<size_t>::max())
+  vertex_limit_(std::numeric_limits<size_t>::max()),
+  vertex_limit_enabled_(true)
 {
   initializeRenderOperation(operationType);
   specifyBufferContent(use_tex_coords);
@@ -65,7 +66,7 @@ void PointCloudRenderable::getRenderOperation(Ogre::RenderOperation & op)
 {
   op = mRenderOp;
   // Selection and depth passes use their own material schemes and need every point.
-  if (vertex_limit_ < mRenderOp.vertexData->vertexCount &&
+  if (vertex_limit_enabled_ && vertex_limit_ < mRenderOp.vertexData->vertexCount &&
     Ogre::MaterialManager::getSingleton().getActiveScheme() ==
     Ogre::MaterialManager::DEFAULT_SCHEME_NAME)
   {

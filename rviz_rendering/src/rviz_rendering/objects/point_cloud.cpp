@@ -38,6 +38,10 @@
 #include <numeric>
 #include <vector>
 
+#ifdef _MSC_VER
+#include <intrin.h>
+#endif
+
 #include <OgreHardwareBuffer.h>
 #include <OgreSceneManager.h>
 #include <OgreSceneNode.h>
@@ -212,6 +216,7 @@ PointCloud::PointCloud()
   common_up_vector_(Ogre::Vector3::UNIT_Y),
   color_by_index_(false),
   level_of_detail_(false),
+  point_budget_camera_(nullptr),
   current_mode_supports_geometry_shader_(false)
 {
   setAlpha(1.0f);
@@ -267,9 +272,6 @@ void PointCloud::clear()
   bounding_box_.setNull();
 
   if (getParentSceneNode()) {
-    for (auto const & renderable : renderables_) {
-      getParentSceneNode()->detachObject(renderable.get());
-    }
     getParentSceneNode()->needUpdate();
   }
 
@@ -477,6 +479,17 @@ static uint32_t lowDiscrepancyStride(uint32_t n)
   return stride;
 }
 
+static int highestSetBit(uint64_t v)
+{
+#ifdef _MSC_VER
+  unsigned long index;  // NOLINT(runtime/int): _BitScanReverse64 takes an unsigned long
+  _BitScanReverse64(&index, v);
+  return static_cast<int>(index);
+#else
+  return 63 - __builtin_clzll(v);
+#endif
+}
+
 // Spreads the low 21 bits of v so that there are two zero bits between each of them.
 static uint64_t spreadBits(uint64_t v)
 {
@@ -542,7 +555,7 @@ static std::vector<uint32_t> levelOfDetailOrder(
       const auto i = static_cast<uint32_t>(codes[k] & ((1u << kIndexBits) - 1));
       const uint64_t difference = k == 0 ? ~0ull : (codes[k] ^ codes[k - 1]) >> kIndexBits;
       if (difference != 0) {
-        const int highest_bit = 63 - __builtin_clzll(difference);
+        const int highest_bit = highestSetBit(difference);
         const int depth = k == 0 ? 0 : kBits - 1 - highest_bit / 3;
         level[i] = static_cast<uint8_t>(std::min(kLevels, std::max(0, depth - 1)));
       }
@@ -831,8 +844,9 @@ void PointCloud::setLevelOfDetail(bool enabled)
   }
 }
 
-void PointCloud::setPointBudget(size_t max_points)
+void PointCloud::setPointBudget(size_t max_points, const Ogre::Camera * camera)
 {
+  point_budget_camera_ = camera;
   const double fraction = point_count_ > 0 && level_of_detail_ ?
     std::min(1.0, static_cast<double>(max_points) / point_count_) : 1.0;
   const uint32_t vertices_per_point = getVerticesPerPoint();
@@ -850,6 +864,11 @@ void PointCloud::setPointBudget(size_t max_points)
 void PointCloud::_notifyCurrentCamera(Ogre::Camera * camera)
 {
   Ogre::MovableObject::_notifyCurrentCamera(camera);
+  // The render queue is built and drawn for one camera at a time.
+  const bool budget_applies = !point_budget_camera_ || camera == point_budget_camera_;
+  for (auto & renderable : renderables_) {
+    renderable->setVertexLimitEnabled(budget_applies);
+  }
 }
 
 void PointCloud::_updateRenderQueue(Ogre::RenderQueue * queue)
@@ -893,9 +912,8 @@ PointCloudRenderablePtr PointCloud::createRenderable(
   rend->setCustomParameter(RVIZ_RENDERING_PICK_COLOR_PARAMETER, pick_col);
   rend->setCustomParameter(RVIZ_RENDERING_NORMAL_PARAMETER, Ogre::Vector4(common_direction_));
   rend->setCustomParameter(RVIZ_RENDERING_UP_PARAMETER, Ogre::Vector4(common_up_vector_));
-  if (getParentSceneNode()) {
-    getParentSceneNode()->attachObject(rend.get());
-  }
+  // Not attached to the scene node: _updateRenderQueue() queues the renderables, attaching them
+  // as well would draw them twice.
   renderables_.push_back(rend);
 
   return rend;
