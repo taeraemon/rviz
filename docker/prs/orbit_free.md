@@ -30,7 +30,7 @@ a KITTI odometry map replayed into rviz.
 
 - New unit tests: the pitch still stops at the pole without the option; with it, the camera goes
   over the pole and ends up upside down looking at the focal point; `lookAt()` keeps it there.
-- `colcon test` for the Orbit, XYOrbit and ThirdPersonFollower tests and the linters of
-  rviz_default_plugins passes.
+- The Orbit and XYOrbit view controller tests and the rviz_default_plugins linters (uncrustify,
+  cpplint, cppcheck, copyright, lint_cmake, xmllint) pass.
 - __OTHER__ (Navigate At Cursor) changes neighbouring lines of the same files; whichever is
   merged second needs a trivial rebase.

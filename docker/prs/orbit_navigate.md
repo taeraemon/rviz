@@ -39,8 +39,8 @@ a KITTI odometry map replayed into rviz.
   point fixed in the camera frame.
 - Picking renders one small depth patch per wheel step or button press. With the KITTI 00 map
   accumulated in the view (RTX 4090), the median pick took 10-12 ms.
-- `colcon test` for the Orbit, XYOrbit and ThirdPersonFollower tests and the linters of
-  rviz_default_plugins passes.
+- The Orbit and XYOrbit view controller tests and the rviz_default_plugins linters (uncrustify,
+  cpplint, cppcheck, copyright, lint_cmake, xmllint) pass.
 - Approaching a picked surface slows down like in CAD programs and does not pass through it;
   rotating or panning gets past it.
 - __OTHER__ (Free Orbit) changes neighbouring lines of the same files; whichever is merged second
