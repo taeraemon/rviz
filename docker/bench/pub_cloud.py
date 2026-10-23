@@ -52,7 +52,12 @@ def main():
     tick()
     if rate > 0:
         node.create_timer(1.0 / rate, tick)
-    rclpy.spin(node)
+    try:
+        rclpy.spin(node)
+    except (KeyboardInterrupt, Exception):
+        # Stopped by a signal: rclpy shuts the context down first, then spin() fails.
+        if rclpy.ok():
+            raise
 
 
 if __name__ == '__main__':
