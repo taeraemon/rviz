@@ -28,9 +28,11 @@ a KITTI odometry map replayed into rviz.
 
 ### Additional Information
 
-- New unit tests: the pitch still stops at the pole without the option; with it, the camera goes
-  over the pole and ends up upside down looking at the focal point; `lookAt()` keeps it there.
+- New unit tests: the pitch still stops at the pole without the option; enabling it does not
+  change the view (with and without Invert Z Axis); with it, the camera goes over the pole and
+  ends up upside down looking at the focal point; `lookAt()` keeps it there.
 - The Orbit and XYOrbit view controller tests and the rviz_default_plugins linters (uncrustify,
   cpplint, cppcheck, copyright, lint_cmake, xmllint) pass.
+- Adds a member to `OrbitViewController`, so it is not ABI compatible for a backport.
 - __OTHER__ (Navigate At Cursor) changes neighbouring lines of the same files; whichever is
   merged second needs a trivial rebase.

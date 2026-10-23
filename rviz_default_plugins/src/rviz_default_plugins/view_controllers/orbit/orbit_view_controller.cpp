@@ -507,7 +507,8 @@ Ogre::Vector3 OrbitViewController::cursorRayPoint(
 {
   float width = static_cast<float>(camera_->getViewport()->getActualWidth());
   float height = static_cast<float>(camera_->getViewport()->getActualHeight());
-  Ogre::Ray ray = camera_->getCameraToViewportRay(event.x / width, event.y / height);
+  Ogre::Ray ray = camera_->getCameraToViewportRay(
+    static_cast<float>(event.x) / width, static_cast<float>(event.y) / height);
 
   Ogre::SceneNode * camera_parent = camera_->getParentSceneNode();
   Ogre::Vector3 direction = target_scene_node_->getOrientation().Inverse() * ray.getDirection();

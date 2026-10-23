@@ -237,6 +237,48 @@ TEST_F(OrbitViewControllerTestFixture, navigate_at_cursor_rotates_around_the_poi
   EXPECT_THAT(inCameraFrame(point), Vector3Near(point_in_camera));
 }
 
+TEST_F(OrbitViewControllerTestFixture, navigate_at_cursor_pans_the_point_below_it_with_the_mouse)
+{
+  setCameraToDefaultYawPitch();
+  orbit_->subProp("Navigate At Cursor")->setValue(true);
+  Ogre::Vector3 point(1.0f, 0.5f, -0.5f);
+  view_picker_->registerObject({0, 0, point});
+  auto camera = orbit_->getCamera();
+  auto screen_x = [&]() {
+      Ogre::Vector3 ndc = camera->getProjectionMatrix() * (camera->getViewMatrix() * point);
+      return (ndc.x + 1.0f) / 2.0f * camera->getViewport()->getActualWidth();
+    };
+  float x = screen_x();
+
+  dragMouse(5, 2, 2, 2, Qt::MiddleButton);
+  update();
+
+  EXPECT_THAT(screen_x(), FloatNear(x + 3.0f, 0.01f));
+}
+
+TEST_F(OrbitViewControllerTestFixture, enabling_free_orbit_does_not_change_the_view)
+{
+  for (bool invert_z : {false, true}) {
+    for (float pitch : {-1.2f, 0.0f, 0.5f, 1.5f}) {
+      orbit_->subProp("Free Orbit")->setValue(false);
+      orbit_->subProp("Invert Z Axis")->setValue(invert_z);
+      orbit_->childAt(7)->setValue(0.3f);
+      orbit_->childAt(8)->setValue(pitch);
+      update();
+      auto node = orbit_->getCamera()->getParentSceneNode();
+      auto orientation = node->getOrientation();
+      auto position = cameraPosition();
+
+      orbit_->subProp("Free Orbit")->setValue(true);
+      update();
+
+      EXPECT_TRUE(node->getOrientation().equals(orientation, Ogre::Radian(0.001f)))
+        << "invert_z " << invert_z << " pitch " << pitch;
+      EXPECT_THAT(cameraPosition(), Vector3Near(position));
+    }
+  }
+}
+
 TEST_F(OrbitViewControllerTestFixture, moving_the_wheel_zooms) {
   auto distance_property = orbit_->childAt(4);
   EXPECT_THAT(distance_property->getNameStd(), StrEq("Distance"));

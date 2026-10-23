@@ -35,13 +35,17 @@ a KITTI odometry map replayed into rviz.
 ### Additional Information
 
 - New unit tests (using the existing `MockViewPicker`): the wheel zooms towards the picked
-  point, the wheel keeps moving with nothing under the cursor, and rotating keeps the picked
-  point fixed in the camera frame.
+  point, the wheel keeps moving with nothing under the cursor, rotating keeps the picked point
+  fixed in the camera frame, and panning moves the picked point exactly with the mouse.
+- Picking uses the depth pass, which covers every visible object (not only selectable ones),
+  like the Focus Camera tool. Mouse coordinates are already in physical pixels, so this also
+  works with HiDPI scaling.
 - Picking renders one small depth patch per wheel step or button press. With the KITTI 00 map
   accumulated in the view (RTX 4090), the median pick took 10-12 ms.
 - The Orbit and XYOrbit view controller tests and the rviz_default_plugins linters (uncrustify,
   cpplint, cppcheck, copyright, lint_cmake, xmllint) pass.
 - Approaching a picked surface slows down like in CAD programs and does not pass through it;
   rotating or panning gets past it.
+- Adds members to `OrbitViewController`, so it is not ABI compatible for a backport.
 - __OTHER__ (Free Orbit) changes neighbouring lines of the same files; whichever is merged second
   needs a trivial rebase.
