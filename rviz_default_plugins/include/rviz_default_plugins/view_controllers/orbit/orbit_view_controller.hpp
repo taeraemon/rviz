@@ -162,6 +162,8 @@ protected:
   rviz_common::properties::FloatProperty * focal_shape_size_property_;
   /// Whether rotating and zooming happen at the point under the cursor.
   rviz_common::properties::BoolProperty * navigate_at_cursor_property_;
+  /// Whether the camera may rotate over the poles.
+  rviz_common::properties::BoolProperty * free_orbit_property_;
 
   std::unique_ptr<rviz_rendering::Shape> focal_shape_;
 
