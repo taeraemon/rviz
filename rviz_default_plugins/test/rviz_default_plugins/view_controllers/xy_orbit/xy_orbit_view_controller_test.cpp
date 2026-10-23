@@ -83,6 +83,18 @@ public:
   std::shared_ptr<rviz_default_plugins::view_controllers::XYOrbitViewController> xy_orbit_;
 };
 
+TEST_F(XYOrbitViewControllerTestFixture, hidden_navigate_at_cursor_stays_off_even_if_enabled)
+{
+  auto navigate = xy_orbit_->subProp("Navigate At Cursor");
+  EXPECT_TRUE(navigate->getHidden());
+  navigate->setValue(true);  // as a hand edited config file could do
+
+  auto event = generateMouseWheelEvent(100);
+  xy_orbit_->handleMouseEvent(event);
+
+  EXPECT_THAT(xy_orbit_->childAt(4)->getValue().toFloat(), FloatNear(9, 0.001f));
+}
+
 TEST_F(XYOrbitViewControllerTestFixture, moving_the_mouse_to_the_left_rotates_left)
 {
   setCameraToDefaultYawPitch();

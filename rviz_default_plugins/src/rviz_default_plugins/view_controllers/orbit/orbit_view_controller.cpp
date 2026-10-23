@@ -32,11 +32,13 @@
 
 #include "rviz_default_plugins/view_controllers/orbit/orbit_view_controller.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <complex>
 #include <cstdint>
 #include <memory>
 #include <valarray>
+#include <vector>
 
 #include <OgreCamera.h>
 #include <OgreQuaternion.h>
@@ -46,6 +48,7 @@
 #include <OgreViewport.h>
 
 #include "rviz_common/display_context.hpp"
+#include "rviz_common/interaction/view_picker_iface.hpp"
 #include "rviz_common/viewport_mouse_event.hpp"
 #include "rviz_rendering/geometry.hpp"
 
@@ -55,6 +58,9 @@ static const float DISTANCE_START = 10;
 static const float FOCAL_SHAPE_SIZE_START = 0.05f;
 static const bool FOCAL_SHAPE_FIXED_SIZE = true;
 static const float ROTATION_SPEED = 0.005f;
+// Half size in pixels of the patch searched for a point under the cursor, so that sparse
+// point clouds can be grabbed without hitting a point exactly.
+static const int PICK_RADIUS = 6;
 
 namespace rviz_default_plugins
 {
@@ -67,7 +73,7 @@ using rviz_common::properties::VectorProperty;
 using rviz_rendering::Shape;
 
 OrbitViewController::OrbitViewController()
-: focal_shape_(nullptr), dragging_(false)
+: focal_shape_(nullptr), dragging_(false), pivot_(Ogre::Vector3::ZERO), pivot_on_surface_(false)
 {
   distance_property_ = new FloatProperty(
     "Distance", DISTANCE_START,
@@ -96,6 +102,12 @@ OrbitViewController::OrbitViewController()
   focal_point_property_ = new VectorProperty(
     "Focal Point", Ogre::Vector3::ZERO,
     "The center point which the camera orbits.", this);
+
+  navigate_at_cursor_property_ = new BoolProperty(
+    "Navigate At Cursor", false,
+    "Rotate around and zoom towards the point under the mouse cursor, like CAD programs. "
+    "When there is nothing under the cursor, the wheel moves the camera along the cursor "
+    "direction instead of stopping at the focal point.", this);
 }
 
 void OrbitViewController::onInitialize()
@@ -138,21 +150,50 @@ void OrbitViewController::handleMouseEvent(rviz_common::ViewportMouseEvent & eve
   int32_t diff_x = 0;
   int32_t diff_y = 0;
 
+  // Pick before the press shows the focal shape, so that the shape cannot be picked.
+  const bool at_cursor = navigateAtCursor();
+  if (at_cursor && event.type == QEvent::MouseButtonPress) {
+    pivot_on_surface_ = pickPoint(event, pivot_);
+    if (pivot_on_surface_) {
+      setFocalPointAtDepthOf(pivot_);
+    } else {
+      pivot_ = focal_point_property_->getVector();
+    }
+  }
+
   bool moved = setMouseMovementFromEvent(event, diff_x, diff_y);
 
   float distance = distance_property_->getFloat();
   if (event.left() && !event.shift()) {
-    rotateCamera(diff_x, diff_y);
+    if (at_cursor) {
+      orbitAroundPivot(diff_x, diff_y);
+    } else {
+      rotateCamera(diff_x, diff_y);
+    }
   } else if (event.middle() || (event.shift() && event.left())) {
     moveFocalPoint(distance, diff_x, diff_y, event.last_x, event.last_y);
   } else if (event.right()) {
-    handleRightClick(event, distance, diff_y);
+    if (at_cursor && !event.shift()) {
+      setCursor(Zoom);
+      zoomTowards(pivot_, pivot_on_surface_, std::exp(diff_y * 0.01f));
+    } else {
+      handleRightClick(event, distance, diff_y);
+    }
   } else {
     setCursor(event.shift() ? MoveXY : Rotate3D);
   }
 
   if (event.wheel_delta != 0) {
-    handleWheelEvent(event, distance);
+    if (at_cursor && !event.shift()) {
+      Ogre::Vector3 target;
+      bool on_surface = pickPoint(event, target);
+      if (!on_surface) {
+        target = cursorRayPoint(event, distance);
+      }
+      zoomTowards(target, on_surface, std::exp(-event.wheel_delta * 0.001f));
+    } else {
+      handleWheelEvent(event, distance);
+    }
     moved = true;
   }
 
@@ -346,7 +387,8 @@ void OrbitViewController::updateCamera()
   camera_parent->setFixedYawAxis(true, target_scene_node_->getOrientation() * camera_z);
   camera_parent->setDirection(focal_point - pos, Ogre::SceneNode::TS_PARENT);
 
-  focal_shape_->setPosition(focal_point);
+  focal_shape_->setPosition(
+    dragging_ && navigateAtCursor() ? pivot_ : focal_point);
 }
 
 void OrbitViewController::yaw(float angle)
@@ -385,6 +427,111 @@ void OrbitViewController::zoom(float amount)
 {
   distance_property_->add(-amount);
   updateFocalShapeSize();
+}
+
+bool OrbitViewController::pickPoint(
+  const rviz_common::ViewportMouseEvent & event, Ogre::Vector3 & point)
+{
+  int width = camera_->getViewport()->getActualWidth();
+  int height = camera_->getViewport()->getActualHeight();
+  int x0 = std::max(0, event.x - PICK_RADIUS);
+  int y0 = std::max(0, event.y - PICK_RADIUS);
+  int x1 = std::min(width, event.x + PICK_RADIUS + 1);
+  int y1 = std::min(height, event.y + PICK_RADIUS + 1);
+  if (x1 <= x0 || y1 <= y0) {
+    return false;
+  }
+
+  std::vector<Ogre::Vector3> points;
+  context_->getViewPicker()->get3DPatch(event.panel, x0, y0, x1 - x0, y1 - y0, true, points);
+
+  // Take the point nearest to the camera, which is the surface the user is looking at.
+  Ogre::Vector3 eye = camera_->getDerivedPosition();
+  bool found = false;
+  float best = 0.0f;
+  for (const auto & p : points) {
+    float d = p.squaredDistance(eye);
+    if (std::isfinite(d) && (!found || d < best)) {
+      found = true;
+      best = d;
+      point = p;
+    }
+  }
+  if (found) {
+    point = target_scene_node_->getOrientation().Inverse() *
+      (point - target_scene_node_->getPosition());
+  }
+  return found;
+}
+
+Ogre::Vector3 OrbitViewController::cursorRayPoint(
+  const rviz_common::ViewportMouseEvent & event, float depth)
+{
+  float width = static_cast<float>(camera_->getViewport()->getActualWidth());
+  float height = static_cast<float>(camera_->getViewport()->getActualHeight());
+  Ogre::Ray ray = camera_->getCameraToViewportRay(
+    static_cast<float>(event.x) / width, static_cast<float>(event.y) / height);
+
+  Ogre::SceneNode * camera_parent = camera_->getParentSceneNode();
+  Ogre::Vector3 direction = target_scene_node_->getOrientation().Inverse() * ray.getDirection();
+  Ogre::Vector3 forward = camera_parent->getOrientation() * Ogre::Vector3::NEGATIVE_UNIT_Z;
+  return camera_parent->getPosition() + direction * (depth / direction.dotProduct(forward));
+}
+
+void OrbitViewController::setFocalPointAtDepthOf(const Ogre::Vector3 & point)
+{
+  // Moves the focal point along the view axis, so the camera itself does not move. Panning and
+  // zooming then scale with the distance to what is under the cursor.
+  Ogre::SceneNode * camera_parent = camera_->getParentSceneNode();
+  Ogre::Vector3 position = camera_parent->getPosition();
+  Ogre::Vector3 forward = camera_parent->getOrientation() * Ogre::Vector3::NEGATIVE_UNIT_Z;
+  float depth = (point - position).dotProduct(forward);
+  if (depth > distance_property_->getMin()) {
+    distance_property_->setFloat(depth);
+    focal_point_property_->setVector(position + forward * depth);
+    updateFocalShapeSize();
+  }
+}
+
+void OrbitViewController::orbitAroundPivot(int32_t diff_x, int32_t diff_y)
+{
+  // Rotate as usual around the focal point, then shift the focal point so that the pivot
+  // stays where it was on the screen.
+  Ogre::SceneNode * camera_parent = camera_->getParentSceneNode();
+  Ogre::Vector3 pivot_in_camera =
+    camera_parent->getOrientation().Inverse() * (pivot_ - camera_parent->getPosition());
+  rotateCamera(diff_x, diff_y);
+  updateCamera();
+  focal_point_property_->add(
+    pivot_ - camera_parent->getOrientation() * pivot_in_camera - camera_parent->getPosition());
+  updateCamera();
+}
+
+void OrbitViewController::zoomTowards(const Ogre::Vector3 & target, bool on_surface, float scale)
+{
+  Ogre::SceneNode * camera_parent = camera_->getParentSceneNode();
+  Ogre::Vector3 position = camera_parent->getPosition();
+  Ogre::Vector3 step = (target - position) * (1.0f - scale);
+  if (on_surface) {
+    // Approach the surface, keeping the focal point at its depth.
+    setFocalPointAtDepthOf(target);
+    Ogre::Vector3 forward = camera_parent->getOrientation() * Ogre::Vector3::NEGATIVE_UNIT_Z;
+    distance_property_->setFloat(distance_property_->getFloat() * scale);
+    focal_point_property_->setVector(position + step + forward * distance_property_->getFloat());
+    updateFocalShapeSize();
+  } else {
+    // Nothing to approach: move camera and focal point together, so zooming never stalls.
+    focal_point_property_->add(step);
+  }
+  // Several wheel events can arrive between two frames; each one starts from the camera
+  // position the previous one left.
+  updateCamera();
+}
+
+bool OrbitViewController::navigateAtCursor() const
+{
+  // Off while a subclass hides the option, even if a saved config enables it.
+  return !navigate_at_cursor_property_->getHidden() && navigate_at_cursor_property_->getBool();
 }
 
 // no lint because this is not std::move and cpplint doesn't know...

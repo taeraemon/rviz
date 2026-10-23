@@ -47,6 +47,7 @@
 #include "rviz_default_plugins/view_controllers/ortho/fixed_orientation_ortho_view_controller.hpp"
 
 #include "../../displays/display_test_fixture.hpp"
+#include "../../mock_view_picker.hpp"
 #include "../../scene_graph_introspection.hpp"
 #include "../view_controller_test_fixture.hpp"
 
@@ -57,6 +58,9 @@ class OrbitViewControllerTestFixture : public ViewControllerTestFixture
 public:
   OrbitViewControllerTestFixture()
   {
+    view_picker_ = std::make_shared<MockViewPicker>();
+    EXPECT_CALL(*context_, getViewPicker()).WillRepeatedly(Return(view_picker_));
+
     orbit_ = std::make_shared<rviz_default_plugins::view_controllers::OrbitViewController>();
     orbit_->initialize(context_.get());
     testing_environment_->createOgreRenderWindow()->addViewport(orbit_->getCamera());
@@ -80,8 +84,30 @@ public:
     orbit_->update(zero, zero);
   }
 
+  Ogre::Vector3 cameraPosition()
+  {
+    return orbit_->getCamera()->getParentSceneNode()->getPosition();
+  }
+
+  Ogre::Vector3 inCameraFrame(const Ogre::Vector3 & point)
+  {
+    auto node = orbit_->getCamera()->getParentSceneNode();
+    return node->getOrientation().Inverse() * (point - node->getPosition());
+  }
+
+  void update()
+  {
+    auto zero = std::chrono::nanoseconds::zero();
+    orbit_->update(zero, zero);
+  }
+
+  std::shared_ptr<MockViewPicker> view_picker_;
   std::shared_ptr<rviz_default_plugins::view_controllers::OrbitViewController> orbit_;
 };
+
+MATCHER_P(Vector3Near, expected, "") {
+  return arg.distance(expected) < 0.001f;
+}
 
 TEST_F(OrbitViewControllerTestFixture, moving_the_mouse_to_the_left_rotates_left)
 {
@@ -117,6 +143,94 @@ TEST_F(OrbitViewControllerTestFixture, moving_the_mouse_up_rotates_up)
 
   EXPECT_THAT(yaw_property->getValue().toFloat(), FloatNear(0, 0.001f));
   EXPECT_THAT(pitch_property->getValue().toFloat(), FloatNear(0.55f, 0.001f));
+}
+
+// The mock view picker reports a point only for a patch starting at the given pixel. The
+// controller searches a patch around the cursor, which starts at (0, 0) for a cursor near
+// the top left corner.
+TEST_F(OrbitViewControllerTestFixture, navigate_at_cursor_wheel_zooms_towards_the_point_below_it)
+{
+  setCameraToDefaultYawPitch();
+  orbit_->subProp("Navigate At Cursor")->setValue(true);
+  Ogre::Vector3 point(1.0f, 0.5f, -0.5f);
+  view_picker_->registerObject({0, 0, point});
+  auto position = cameraPosition();
+
+  auto event = generateMouseWheelEvent(120);
+  orbit_->handleMouseEvent(event);
+  update();
+
+  EXPECT_THAT(cameraPosition(), Vector3Near(point + (position - point) * std::exp(-0.12f)));
+}
+
+TEST_F(
+  OrbitViewControllerTestFixture,
+  navigate_at_cursor_wheel_events_between_two_frames_all_count)
+{
+  setCameraToDefaultYawPitch();
+  orbit_->subProp("Navigate At Cursor")->setValue(true);
+  Ogre::Vector3 point(1.0f, 0.5f, -0.5f);
+  view_picker_->registerObject({0, 0, point});
+  auto position = cameraPosition();
+
+  for (int i = 0; i < 2; ++i) {
+    auto event = generateMouseWheelEvent(120);
+    orbit_->handleMouseEvent(event);
+  }
+  update();
+
+  EXPECT_THAT(cameraPosition(), Vector3Near(point + (position - point) * std::exp(-0.24f)));
+}
+
+TEST_F(OrbitViewControllerTestFixture, navigate_at_cursor_wheel_does_not_stop_in_empty_space)
+{
+  setCameraToDefaultYawPitch();
+  orbit_->subProp("Navigate At Cursor")->setValue(true);
+  auto position = cameraPosition();
+
+  for (int i = 0; i < 40; ++i) {
+    auto event = generateMouseWheelEvent(120);
+    orbit_->handleMouseEvent(event);
+  }
+  update();
+
+  // Without Navigate At Cursor the camera can only approach the focal point, 10 away.
+  EXPECT_THAT(cameraPosition().distance(position), Gt(20.0f));
+  EXPECT_THAT(orbit_->childAt(4)->getValue().toFloat(), FloatNear(10.0f, 0.001f));
+}
+
+TEST_F(OrbitViewControllerTestFixture, navigate_at_cursor_rotates_around_the_point_below_it)
+{
+  setCameraToDefaultYawPitch();
+  orbit_->subProp("Navigate At Cursor")->setValue(true);
+  Ogre::Vector3 point(1.0f, 0.5f, -0.5f);
+  view_picker_->registerObject({0, 0, point});
+  auto point_in_camera = inCameraFrame(point);
+
+  dragMouse(5, 0, 2, 2, Qt::LeftButton);
+  update();
+
+  EXPECT_THAT(orbit_->childAt(7)->getValue().toFloat(), Not(FloatNear(0.0f, 0.001f)));
+  EXPECT_THAT(inCameraFrame(point), Vector3Near(point_in_camera));
+}
+
+TEST_F(OrbitViewControllerTestFixture, navigate_at_cursor_pans_the_point_below_it_with_the_mouse)
+{
+  setCameraToDefaultYawPitch();
+  orbit_->subProp("Navigate At Cursor")->setValue(true);
+  Ogre::Vector3 point(1.0f, 0.5f, -0.5f);
+  view_picker_->registerObject({0, 0, point});
+  auto camera = orbit_->getCamera();
+  auto screen_x = [&]() {
+      Ogre::Vector3 ndc = camera->getProjectionMatrix() * (camera->getViewMatrix() * point);
+      return (ndc.x + 1.0f) / 2.0f * camera->getViewport()->getActualWidth();
+    };
+  float x = screen_x();
+
+  dragMouse(5, 2, 2, 2, Qt::MiddleButton);
+  update();
+
+  EXPECT_THAT(screen_x(), FloatNear(x + 3.0f, 0.01f));
 }
 
 TEST_F(OrbitViewControllerTestFixture, moving_the_wheel_zooms) {
