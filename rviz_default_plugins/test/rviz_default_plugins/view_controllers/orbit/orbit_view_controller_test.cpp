@@ -80,8 +80,23 @@ public:
     orbit_->update(zero, zero);
   }
 
+  Ogre::Vector3 cameraPosition()
+  {
+    return orbit_->getCamera()->getParentSceneNode()->getPosition();
+  }
+
+  void update()
+  {
+    auto zero = std::chrono::nanoseconds::zero();
+    orbit_->update(zero, zero);
+  }
+
   std::shared_ptr<rviz_default_plugins::view_controllers::OrbitViewController> orbit_;
 };
+
+MATCHER_P(Vector3Near, expected, "") {
+  return arg.distance(expected) < 0.001f;
+}
 
 TEST_F(OrbitViewControllerTestFixture, moving_the_mouse_to_the_left_rotates_left)
 {
@@ -117,6 +132,71 @@ TEST_F(OrbitViewControllerTestFixture, moving_the_mouse_up_rotates_up)
 
   EXPECT_THAT(yaw_property->getValue().toFloat(), FloatNear(0, 0.001f));
   EXPECT_THAT(pitch_property->getValue().toFloat(), FloatNear(0.55f, 0.001f));
+}
+
+TEST_F(OrbitViewControllerTestFixture, pitch_stops_at_the_pole_without_free_orbit)
+{
+  setCameraToDefaultYawPitch();
+
+  dragMouse(10, 310, 10, 10, Qt::LeftButton);
+
+  EXPECT_THAT(orbit_->childAt(8)->getValue().toFloat(), FloatNear(1.5698f, 0.001f));
+}
+
+TEST_F(OrbitViewControllerTestFixture, free_orbit_rotates_over_the_pole)
+{
+  setCameraToDefaultYawPitch();
+  orbit_->subProp("Free Orbit")->setValue(true);
+
+  dragMouse(10, 310, 10, 10, Qt::LeftButton);
+  auto zero = std::chrono::nanoseconds::zero();
+  orbit_->update(zero, zero);
+
+  EXPECT_THAT(orbit_->childAt(8)->getValue().toFloat(), FloatNear(2.0f, 0.001f));
+  // Over the top, the camera is upside down and still looks at the focal point.
+  auto node = orbit_->getCamera()->getParentSceneNode();
+  EXPECT_THAT((node->getOrientation() * Ogre::Vector3::UNIT_Y).z, FloatNear(cos(2.0f), 0.001f));
+  auto forward = node->getOrientation() * Ogre::Vector3::NEGATIVE_UNIT_Z;
+  auto to_focal = (Ogre::Vector3::ZERO - node->getPosition()).normalisedCopy();
+  EXPECT_THAT(forward.dotProduct(to_focal), FloatNear(1.0f, 0.001f));
+}
+
+TEST_F(OrbitViewControllerTestFixture, free_orbit_look_at_keeps_the_camera_upside_down)
+{
+  setCameraToDefaultYawPitch();
+  orbit_->subProp("Free Orbit")->setValue(true);
+  dragMouse(10, 310, 10, 10, Qt::LeftButton);
+  update();
+  auto position = cameraPosition();
+
+  orbit_->lookAt(Ogre::Vector3::ZERO);
+  update();
+
+  EXPECT_THAT(orbit_->childAt(8)->getValue().toFloat(), FloatNear(2.0f, 0.001f));
+  EXPECT_THAT(cameraPosition(), Vector3Near(position));
+}
+
+TEST_F(OrbitViewControllerTestFixture, enabling_free_orbit_does_not_change_the_view)
+{
+  for (bool invert_z : {false, true}) {
+    for (float pitch : {-1.2f, 0.0f, 0.5f, 1.5f}) {
+      orbit_->subProp("Free Orbit")->setValue(false);
+      orbit_->subProp("Invert Z Axis")->setValue(invert_z);
+      orbit_->childAt(7)->setValue(0.3f);
+      orbit_->childAt(8)->setValue(pitch);
+      update();
+      auto node = orbit_->getCamera()->getParentSceneNode();
+      auto orientation = node->getOrientation();
+      auto position = cameraPosition();
+
+      orbit_->subProp("Free Orbit")->setValue(true);
+      update();
+
+      EXPECT_TRUE(node->getOrientation().equals(orientation, Ogre::Radian(0.001f)))
+        << "invert_z " << invert_z << " pitch " << pitch;
+      EXPECT_THAT(cameraPosition(), Vector3Near(position));
+    }
+  }
 }
 
 TEST_F(OrbitViewControllerTestFixture, moving_the_wheel_zooms) {

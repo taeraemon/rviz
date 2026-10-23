@@ -58,6 +58,8 @@ void XYOrbitViewController::onInitialize()
 {
   OrbitViewController::onInitialize();
   focal_shape_->setColor(0.0f, 1.0f, 1.0f, 0.5f);
+  // This controller looks at the XY plane from above.
+  free_orbit_property_->hide();
 }
 
 void XYOrbitViewController::mimic(ViewController * source_view)

@@ -83,6 +83,18 @@ public:
   std::shared_ptr<rviz_default_plugins::view_controllers::XYOrbitViewController> xy_orbit_;
 };
 
+TEST_F(XYOrbitViewControllerTestFixture, hidden_free_orbit_stays_off_even_if_enabled)
+{
+  setCameraToDefaultYawPitch();
+  auto free_orbit = xy_orbit_->subProp("Free Orbit");
+  EXPECT_TRUE(free_orbit->getHidden());
+  free_orbit->setValue(true);  // as a hand edited config file could do
+
+  dragMouse(10, 310, 10, 10, Qt::LeftButton);
+
+  EXPECT_THAT(xy_orbit_->childAt(8)->getValue().toFloat(), FloatNear(1.5698f, 0.001f));
+}
+
 TEST_F(XYOrbitViewControllerTestFixture, moving_the_mouse_to_the_left_rotates_left)
 {
   setCameraToDefaultYawPitch();

@@ -32,6 +32,7 @@
 
 #include "rviz_default_plugins/view_controllers/orbit/orbit_view_controller.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <complex>
 #include <cstdint>
@@ -55,6 +56,7 @@ static const float DISTANCE_START = 10;
 static const float FOCAL_SHAPE_SIZE_START = 0.05f;
 static const bool FOCAL_SHAPE_FIXED_SIZE = true;
 static const float ROTATION_SPEED = 0.005f;
+static const float PITCH_LIMIT = Ogre::Math::HALF_PI - 0.001f;
 
 namespace rviz_default_plugins
 {
@@ -90,12 +92,18 @@ OrbitViewController::OrbitViewController()
   pitch_property_ = new FloatProperty(
     "Pitch", PITCH_START,
     "How much the camera is tipped downward.", this);
-  pitch_property_->setMax(Ogre::Math::HALF_PI - 0.001f);
-  pitch_property_->setMin(-pitch_property_->getMax());
+  // Wide enough for Free Orbit; without it updateCamera() keeps the pitch within PITCH_LIMIT.
+  pitch_property_->setMax(Ogre::Math::PI);
+  pitch_property_->setMin(-Ogre::Math::PI);
 
   focal_point_property_ = new VectorProperty(
     "Focal Point", Ogre::Vector3::ZERO,
     "The center point which the camera orbits.", this);
+
+  free_orbit_property_ = new BoolProperty(
+    "Free Orbit", false,
+    "Let the camera rotate over the top and under the bottom, instead of stopping when it "
+    "looks straight down or up.", this);
 }
 
 void OrbitViewController::onInitialize()
@@ -199,7 +207,9 @@ bool OrbitViewController::setMouseMovementFromEvent(
 void OrbitViewController::rotateCamera(int32_t diff_x, int32_t diff_y)
 {
   setCursor(Rotate3D);
-  yaw(diff_x * ROTATION_SPEED);
+  // Upside down, dragging to the right has to turn the world the other way to follow the mouse.
+  bool upside_down = freeOrbit() && cos(pitch_property_->getFloat()) < 0;
+  yaw((upside_down ? -diff_x : diff_x) * ROTATION_SPEED);
   pitch(-diff_y * ROTATION_SPEED);
 }
 
@@ -306,7 +316,16 @@ void OrbitViewController::lookAt(const Ogre::Vector3 & point)
     (point - target_scene_node_->getPosition()));
   distance_property_->setFloat(focal_point_property_->getVector().distance(camera_position));
   updateFocalShapeSize();
+  bool upside_down = freeOrbit() && cos(pitch_property_->getFloat()) < 0;
   calculatePitchYawFromPosition(camera_position);
+  if (upside_down) {
+    // The same camera position, reached over the pole, so the view does not flip upright.
+    pitch_property_->setFloat(
+      rviz_rendering::mapAngleTo0_2Pi(2.0f * Ogre::Math::PI - pitch_property_->getFloat()) -
+      Ogre::Math::PI);
+    yaw_property_->setFloat(
+      rviz_rendering::mapAngleTo0_2Pi(yaw_property_->getFloat() + Ogre::Math::PI));
+  }
 }
 
 void OrbitViewController::onTargetFrameChanged(
@@ -318,6 +337,11 @@ void OrbitViewController::onTargetFrameChanged(
 
 void OrbitViewController::updateCamera()
 {
+  const bool free_orbit = freeOrbit();
+  if (!free_orbit && std::abs(pitch_property_->getFloat()) > PITCH_LIMIT) {
+    pitch_property_->setFloat(std::clamp(pitch_property_->getFloat(), -PITCH_LIMIT, PITCH_LIMIT));
+  }
+
   float distance = distance_property_->getFloat();
   float yaw = yaw_property_->getFloat();
   float pitch = pitch_property_->getFloat();
@@ -343,8 +367,17 @@ void OrbitViewController::updateCamera()
     throw std::runtime_error("camera's parent scene node pointer unexpectedly nullptr");
   }
   camera_parent->setPosition(pos);
-  camera_parent->setFixedYawAxis(true, target_scene_node_->getOrientation() * camera_z);
-  camera_parent->setDirection(focal_point - pos, Ogre::SceneNode::TS_PARENT);
+  if (free_orbit) {
+    // Build the orientation from the spherical coordinates, so that the up direction stays
+    // continuous when the pitch goes over the poles.
+    Ogre::Vector3 backward(cos(yaw) * cos(pitch), sin(yaw) * cos(pitch), sin(pitch));
+    Ogre::Vector3 up(-cos(yaw) * sin(pitch), -sin(yaw) * sin(pitch), cos(pitch));
+    up *= camera_z.z;
+    camera_parent->setOrientation(Ogre::Quaternion(up.crossProduct(backward), up, backward));
+  } else {
+    camera_parent->setFixedYawAxis(true, target_scene_node_->getOrientation() * camera_z);
+    camera_parent->setDirection(focal_point - pos, Ogre::SceneNode::TS_PARENT);
+  }
 
   focal_shape_->setPosition(focal_point);
 }
@@ -356,7 +389,13 @@ void OrbitViewController::yaw(float angle)
 
 void OrbitViewController::pitch(float angle)
 {
-  pitch_property_->add(-angle);
+  float pitch = pitch_property_->getFloat() - angle;
+  if (freeOrbit()) {
+    pitch = rviz_rendering::mapAngleTo0_2Pi(pitch + Ogre::Math::PI) - Ogre::Math::PI;
+  } else {
+    pitch = std::clamp(pitch, -PITCH_LIMIT, PITCH_LIMIT);
+  }
+  pitch_property_->setFloat(pitch);
 }
 
 void OrbitViewController::calculatePitchYawFromPosition(const Ogre::Vector3 & position)
@@ -385,6 +424,12 @@ void OrbitViewController::zoom(float amount)
 {
   distance_property_->add(-amount);
   updateFocalShapeSize();
+}
+
+bool OrbitViewController::freeOrbit() const
+{
+  // Off while a subclass hides the option, even if a saved config enables it.
+  return !free_orbit_property_->getHidden() && free_orbit_property_->getBool();
 }
 
 // no lint because this is not std::move and cpplint doesn't know...
