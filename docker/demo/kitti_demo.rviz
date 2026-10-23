@@ -45,6 +45,8 @@ Visualization Manager:
       Distance: 450
       Focal Point: {X: 120, Y: 100, Z: 0}
       Name: Current View
+      Navigate At Cursor: true
+      Free Orbit: true
       Near Clip Distance: 0.01
       Pitch: 1.0
       Target Frame: <Fixed Frame>

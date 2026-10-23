@@ -11,6 +11,8 @@ placeholders are replaced by the PR numbers once all PRs exist.
 | D1 | `pr/pointcloud-release-transformed-points` | |
 | D2 | `pr/pointcloud-compact-points` | stacked on D1 |
 | E | `pr/pointcloud-lod` | stacked on D1, best with B |
+| orbit_navigate | `pr/orbit-navigate-at-cursor` | Orbit view, `__OTHER__` = orbit_free |
+| orbit_free | `pr/orbit-free-orbit` | Orbit view, `__OTHER__` = orbit_navigate; conflicts trivially with orbit_navigate (neighbouring lines) |
 
 The branches merge with each other in any order without conflicts (checked pairwise and for all
 six in two orders); `integration` is all six merged. Measurement setup: ROS Rolling on
