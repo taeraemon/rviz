@@ -160,11 +160,21 @@ protected:
   rviz_common::properties::BoolProperty * focal_shape_fixed_size_property_;
   /// The focal shape size.
   rviz_common::properties::FloatProperty * focal_shape_size_property_;
+  /// Whether rotating and zooming happen at the point under the cursor.
+  rviz_common::properties::BoolProperty * navigate_at_cursor_property_;
 
   std::unique_ptr<rviz_rendering::Shape> focal_shape_;
 
 private:
+  bool pickPoint(const rviz_common::ViewportMouseEvent & event, Ogre::Vector3 & point);
+  Ogre::Vector3 cursorRayPoint(const rviz_common::ViewportMouseEvent & event, float depth);
+  void setFocalPointAtDepthOf(const Ogre::Vector3 & point);
+  void orbitAroundPivot(int32_t diff_x, int32_t diff_y);
+  void zoomTowards(const Ogre::Vector3 & target, bool on_surface, float scale);
+
   bool dragging_;
+  Ogre::Vector3 pivot_;
+  bool pivot_on_surface_;
 };
 
 }  // namespace view_controllers
