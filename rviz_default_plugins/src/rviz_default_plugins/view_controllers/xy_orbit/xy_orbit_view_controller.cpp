@@ -58,7 +58,7 @@ void XYOrbitViewController::onInitialize()
 {
   OrbitViewController::onInitialize();
   focal_shape_->setColor(0.0f, 1.0f, 1.0f, 0.5f);
-  // Both move the focal point off the XY plane this controller keeps it on.
+  // This controller keeps its focal point on the XY plane and looks at it from above.
   navigate_at_cursor_property_->hide();
   free_orbit_property_->hide();
 }
