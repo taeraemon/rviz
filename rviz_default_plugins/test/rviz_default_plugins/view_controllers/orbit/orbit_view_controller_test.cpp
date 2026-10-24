@@ -205,6 +205,25 @@ TEST_F(OrbitViewControllerTestFixture, navigate_at_cursor_wheel_zooms_towards_th
   EXPECT_THAT(cameraPosition(), Vector3Near(point + (position - point) * std::exp(-0.12f)));
 }
 
+TEST_F(
+  OrbitViewControllerTestFixture,
+  navigate_at_cursor_wheel_events_between_two_frames_all_count)
+{
+  setCameraToDefaultYawPitch();
+  orbit_->subProp("Navigate At Cursor")->setValue(true);
+  Ogre::Vector3 point(1.0f, 0.5f, -0.5f);
+  view_picker_->registerObject({0, 0, point});
+  auto position = cameraPosition();
+
+  for (int i = 0; i < 2; ++i) {
+    auto event = generateMouseWheelEvent(120);
+    orbit_->handleMouseEvent(event);
+  }
+  update();
+
+  EXPECT_THAT(cameraPosition(), Vector3Near(point + (position - point) * std::exp(-0.24f)));
+}
+
 TEST_F(OrbitViewControllerTestFixture, navigate_at_cursor_wheel_does_not_stop_in_empty_space)
 {
   setCameraToDefaultYawPitch();

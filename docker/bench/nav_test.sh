@@ -8,7 +8,9 @@ export ROS_DOMAIN_ID=$((RANDOM % 100 + 100))
 cp $WS/src/rviz/docker/demo/kitti_demo.rviz /tmp/nav.rviz
 [ -n "$PPP" ] && sed -i "s/Max Points Per Pixel: .*/Max Points Per Pixel: $PPP/" /tmp/nav.rviz
 python3 -u $WS/src/rviz/docker/bench/kitti_replay.py 00 scan 50 $N >/dev/null 2>&1 & PUB=$!
-vglrun -d egl rviz2 -d /tmp/nav.rviz > $OUT/rviz.log 2>&1 & RV=$!
+# MESA=1: software rendering through Mesa (the driver stack of Intel and AMD GPUs) instead of NVIDIA.
+if [ -n "$MESA" ]; then LIBGL_ALWAYS_SOFTWARE=1 rviz2 -d /tmp/nav.rviz > $OUT/rviz.log 2>&1 & RV=$!
+else vglrun -d egl rviz2 -d /tmp/nav.rviz > $OUT/rviz.log 2>&1 & RV=$!; fi
 shot() { xwd -root -silent | convert xwd:- -crop 1600x1000+0+0 -resize 50% $OUT/$1.png; }
 sleep $((N / 50 + 10)); shot 0_start
 xdotool mousemove 800 300; for i in $(seq 30); do xdotool click 4; sleep 0.05; done; sleep 1; shot 1_wheel_in

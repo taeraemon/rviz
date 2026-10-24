@@ -158,7 +158,7 @@ void OrbitViewController::handleMouseEvent(rviz_common::ViewportMouseEvent & eve
   int32_t diff_y = 0;
 
   // Pick before the press shows the focal shape, so that the shape cannot be picked.
-  const bool at_cursor = navigate_at_cursor_property_->getBool();
+  const bool at_cursor = navigateAtCursor();
   if (at_cursor && event.type == QEvent::MouseButtonPress) {
     pivot_on_surface_ = pickPoint(event, pivot_);
     if (pivot_on_surface_) {
@@ -248,7 +248,7 @@ void OrbitViewController::rotateCamera(int32_t diff_x, int32_t diff_y)
 {
   setCursor(Rotate3D);
   // Upside down, dragging to the right has to turn the world the other way to follow the mouse.
-  bool upside_down = free_orbit_property_->getBool() && cos(pitch_property_->getFloat()) < 0;
+  bool upside_down = freeOrbit() && cos(pitch_property_->getFloat()) < 0;
   yaw((upside_down ? -diff_x : diff_x) * ROTATION_SPEED);
   pitch(-diff_y * ROTATION_SPEED);
 }
@@ -356,7 +356,7 @@ void OrbitViewController::lookAt(const Ogre::Vector3 & point)
     (point - target_scene_node_->getPosition()));
   distance_property_->setFloat(focal_point_property_->getVector().distance(camera_position));
   updateFocalShapeSize();
-  bool upside_down = free_orbit_property_->getBool() && cos(pitch_property_->getFloat()) < 0;
+  bool upside_down = freeOrbit() && cos(pitch_property_->getFloat()) < 0;
   calculatePitchYawFromPosition(camera_position);
   if (upside_down) {
     // The same camera position, reached over the pole, so the view does not flip upright.
@@ -377,7 +377,7 @@ void OrbitViewController::onTargetFrameChanged(
 
 void OrbitViewController::updateCamera()
 {
-  const bool free_orbit = free_orbit_property_->getBool();
+  const bool free_orbit = freeOrbit();
   if (!free_orbit && std::abs(pitch_property_->getFloat()) > PITCH_LIMIT) {
     pitch_property_->setFloat(std::clamp(pitch_property_->getFloat(), -PITCH_LIMIT, PITCH_LIMIT));
   }
@@ -420,7 +420,7 @@ void OrbitViewController::updateCamera()
   }
 
   focal_shape_->setPosition(
-    dragging_ && navigate_at_cursor_property_->getBool() ? pivot_ : focal_point);
+    dragging_ && navigateAtCursor() ? pivot_ : focal_point);
 }
 
 void OrbitViewController::yaw(float angle)
@@ -431,7 +431,7 @@ void OrbitViewController::yaw(float angle)
 void OrbitViewController::pitch(float angle)
 {
   float pitch = pitch_property_->getFloat() - angle;
-  if (free_orbit_property_->getBool()) {
+  if (freeOrbit()) {
     pitch = rviz_rendering::mapAngleTo0_2Pi(pitch + Ogre::Math::PI) - Ogre::Math::PI;
   } else {
     pitch = std::clamp(pitch, -PITCH_LIMIT, PITCH_LIMIT);
@@ -561,6 +561,21 @@ void OrbitViewController::zoomTowards(const Ogre::Vector3 & target, bool on_surf
     // Nothing to approach: move camera and focal point together, so zooming never stalls.
     focal_point_property_->add(step);
   }
+  // Several wheel events can arrive between two frames; each one starts from the camera
+  // position the previous one left.
+  updateCamera();
+}
+
+bool OrbitViewController::navigateAtCursor() const
+{
+  // Off while a subclass hides the option, even if a saved config enables it.
+  return !navigate_at_cursor_property_->getHidden() && navigate_at_cursor_property_->getBool();
+}
+
+bool OrbitViewController::freeOrbit() const
+{
+  // Off while a subclass hides the option, even if a saved config enables it.
+  return !free_orbit_property_->getHidden() && free_orbit_property_->getBool();
 }
 
 // no lint because this is not std::move and cpplint doesn't know...

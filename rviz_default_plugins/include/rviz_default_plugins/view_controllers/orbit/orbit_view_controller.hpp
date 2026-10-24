@@ -168,6 +168,8 @@ protected:
   std::unique_ptr<rviz_rendering::Shape> focal_shape_;
 
 private:
+  bool navigateAtCursor() const;
+  bool freeOrbit() const;
   bool pickPoint(const rviz_common::ViewportMouseEvent & event, Ogre::Vector3 & point);
   Ogre::Vector3 cursorRayPoint(const rviz_common::ViewportMouseEvent & event, float depth);
   void setFocalPointAtDepthOf(const Ogre::Vector3 & point);
