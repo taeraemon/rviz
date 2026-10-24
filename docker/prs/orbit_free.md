@@ -13,7 +13,7 @@ upside down instead of flipping it.
 
 The Pitch property now allows -pi..pi so that a saved upside down view loads. Without Free Orbit
 the pitch is still kept within the previous limits. XYOrbit and ThirdPersonFollower hide the
-option.
+option, and it stays off there even if a config file enables it.
 
 ### Is this user-facing behavior change?
 
@@ -30,9 +30,14 @@ a KITTI odometry map replayed into rviz.
 
 - New unit tests: the pitch still stops at the pole without the option; enabling it does not
   change the view (with and without Invert Z Axis); with it, the camera goes over the pole and
-  ends up upside down looking at the focal point; `lookAt()` keeps it there.
+  ends up upside down looking at the focal point; `lookAt()` keeps it there; the option stays off
+  in XYOrbit.
 - The Orbit and XYOrbit view controller tests and the rviz_default_plugins linters (uncrustify,
-  cpplint, cppcheck, copyright, lint_cmake, xmllint) pass.
+  cpplint, cppcheck, copyright, lint_cmake, xmllint) pass, also with AddressSanitizer and
+  UndefinedBehaviorSanitizer. The changed files compile without warnings with GCC 15 and Clang 21
+  (`-Wall -Wextra -Wpedantic -Wshadow`).
+- Scripted mouse tests (xdotool) on a KITTI map with NVIDIA and with Mesa llvmpipe. Not tested on
+  Windows or macOS.
 - Adds a member to `OrbitViewController`, so it is not ABI compatible for a backport.
 - __OTHER__ (Navigate At Cursor) changes neighbouring lines of the same files; whichever is
   merged second needs a trivial rebase.

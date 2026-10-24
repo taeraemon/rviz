@@ -20,7 +20,8 @@ pixel patch, so sparse point clouds can be grabbed), and works the way most CAD 
 On press the focal point is moved along the view axis to the depth of the picked point. The
 camera itself does not move, but Distance, the pan speed and the focal shape size then follow
 what is under the cursor. While dragging, the focal shape is shown at the picked point. XYOrbit
-and ThirdPersonFollower keep their focal point on the XY plane, so they hide the option.
+and ThirdPersonFollower keep their focal point on the XY plane, so they hide the option, and it
+stays off there even if a config file enables it.
 
 ### Is this user-facing behavior change?
 
@@ -36,14 +37,20 @@ a KITTI odometry map replayed into rviz.
 
 - New unit tests (using the existing `MockViewPicker`): the wheel zooms towards the picked
   point, the wheel keeps moving with nothing under the cursor, rotating keeps the picked point
-  fixed in the camera frame, and panning moves the picked point exactly with the mouse.
+  fixed in the camera frame, panning moves the picked point exactly with the mouse, wheel events
+  that arrive between two frames all count, and the option stays off in XYOrbit.
 - Picking uses the depth pass, which covers every visible object (not only selectable ones),
   like the Focus Camera tool. Mouse coordinates are already in physical pixels, so this also
   works with HiDPI scaling.
 - Picking renders one small depth patch per wheel step or button press. With the KITTI 00 map
   accumulated in the view (RTX 4090), the median pick took 10-12 ms.
 - The Orbit and XYOrbit view controller tests and the rviz_default_plugins linters (uncrustify,
-  cpplint, cppcheck, copyright, lint_cmake, xmllint) pass.
+  cpplint, cppcheck, copyright, lint_cmake, xmllint) pass, also with AddressSanitizer and
+  UndefinedBehaviorSanitizer. The changed files compile without warnings with GCC 15 and Clang 21
+  (`-Wall -Wextra -Wpedantic -Wshadow`).
+- Scripted mouse tests (xdotool) on a KITTI map with NVIDIA and with Mesa llvmpipe (the Mesa
+  driver stack, as used by Intel and AMD GPUs): picking, zooming, rotating and panning behave the
+  same. Not tested on Windows or macOS.
 - Approaching a picked surface slows down like in CAD programs and does not pass through it;
   rotating or panning gets past it.
 - Adds members to `OrbitViewController`, so it is not ABI compatible for a backport.
