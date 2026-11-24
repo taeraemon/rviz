@@ -37,6 +37,7 @@
 #include <limits>
 #include <numeric>
 #include <sstream>
+#include <utility>
 #include <vector>
 
 #ifdef _MSC_VER
@@ -61,6 +62,7 @@
 #include "rviz_rendering/custom_parameter_indices.hpp"
 #include "rviz_rendering/logging.hpp"
 #include "rviz_rendering/material_manager.hpp"
+#include "rviz_rendering/render_system.hpp"
 
 // TODO(greimela): Add again after clearing up the module dependencies
 // #include "rviz_rendering/selection/forwards.hpp"
@@ -211,6 +213,39 @@ Ogre::MaterialPtr PointCloud::getMaterialForRenderMode(RenderMode mode)
   }
 }
 
+static bool isGeometryShaderTechnique(const Ogre::Technique * technique)
+{
+  const std::string & name = technique->getName();
+  return name == "gp" || name.rfind("gp_", 0) == 0;
+}
+
+static void removeGeometryShaderTechniques(const Ogre::MaterialPtr & material)
+{
+  for (auto i = material->getTechniques().size(); i-- > 0; ) {
+    if (isGeometryShaderTechnique(material->getTechniques()[i])) {
+      material->removeTechnique(static_cast<uint16_t>(i));
+    }
+  }
+}
+
+void loadPointCloudMaterial(const Ogre::MaterialPtr & material, int glsl_version)
+{
+  if (glsl_version < 150) {
+    removeGeometryShaderTechniques(material);
+  }
+  material->load();
+
+  const auto & techniques = material->getTechniques();
+  const bool all_gp_supported = std::all_of(
+    techniques.begin(), techniques.end(), [](const Ogre::Technique * technique) {
+      return !isGeometryShaderTechnique(technique) || technique->isSupported();
+    });
+  if (!all_gp_supported) {
+    removeGeometryShaderTechniques(material);
+    material->compile();
+  }
+}
+
 PointCloud::PointCloud()
 : point_count_(0),
   common_direction_(Ogre::Vector3::NEGATIVE_UNIT_Z),
@@ -296,7 +331,7 @@ void PointCloud::regenerateAll()
 
   clear();
 
-  addPoints(points.begin(), points.end());
+  addPoints(std::move(points));
 }
 
 void PointCloud::setColorByIndex(bool set)
@@ -420,7 +455,7 @@ static Ogre::MaterialPtr getSharedMaterial(const std::string & base_name, bool a
   Ogre::MaterialPtr material = manager.getByName(name);
   if (!material) {
     material = manager.getByName(base_name)->clone(name);
-    material->load();
+    loadPointCloudMaterial(material, RenderSystem::get()->getGlslVersion());
     if (alpha_blending) {
       setAlphaBlending(material);
     } else {
@@ -605,6 +640,19 @@ void PointCloud::addPoints(
   for (auto point = start_iterator; point != stop_iterator; ++point) {
     points_.push_back({point->position, point->color.getAsRGBA()});
   }
+  createRenderablesForPoints(start_iterator, stop_iterator);
+}
+
+void PointCloud::addPoints(std::vector<Point> && points)
+{
+  addPoints(points.begin(), points.end());
+}
+
+void PointCloud::createRenderablesForPoints(
+  std::vector<Point>::iterator start_iterator,
+  std::vector<Point>::iterator stop_iterator)
+{
+  auto num_points = static_cast<uint32_t>(std::distance(start_iterator, stop_iterator));
 
   const float * vertices = getVertices();
   const uint32_t vertices_per_point = getVerticesPerPoint();
