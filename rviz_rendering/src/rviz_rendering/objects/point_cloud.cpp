@@ -646,6 +646,9 @@ void PointCloud::addPoints(
 void PointCloud::addPoints(std::vector<Point> && points)
 {
   addPoints(points.begin(), points.end());
+  // The points are stored packed, so the buffer cannot be taken over; free it instead, as callers
+  // rely on the move to release their copy.
+  std::vector<Point>().swap(points);
 }
 
 void PointCloud::createRenderablesForPoints(
