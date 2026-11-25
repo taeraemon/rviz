@@ -268,6 +268,17 @@ TEST_F(PointCloudTestFixture, colors_survive_repeated_regeneration_unchanged) {
   }
 }
 
+TEST_F(PointCloudTestFixture, addPoints_by_move_releases_the_memory_of_the_vector) {
+  auto point_cloud = std::make_shared<rviz_rendering::PointCloud>();
+
+  auto points = squareCenteredAtZero;
+  point_cloud->addPoints(std::move(points));
+
+  // Callers like PointCloudCommon rely on the move to free their copy of the points.
+  EXPECT_THAT(points.capacity(), Eq(0u));
+  EXPECT_THAT(point_cloud->getPoints(), SizeIs(squareCenteredAtZero.size()));
+}
+
 TEST_F(PointCloudTestFixture, setDimensions_changes_dimensions_of_points_and_newly_added_points) {
   auto point_cloud = std::make_shared<rviz_rendering::PointCloud>();
   point_cloud->addPoints(singlePointArray.begin(), singlePointArray.end());
